@@ -10835,13 +10835,59 @@
             border-color: var(--accent-color) !important;
             outline: none;
         }
+/* Personal build: enter chat immediately and keep removed tools out of view. */
+#splash-declaration,
+#welcome-animation,
+#session-manager-btn,
+#group-chat-btn,
+#batch-btn,
+#batch-btn-extra,
+#session-modal,
+#group-chat-modal,
+#batch-preview {
+    display: none !important;
+}
 
-/* ===== 自定义隐藏项 ===== */
-/* 隐藏群聊按钮 */
-#group-chat-btn { display: none !important; }
-/* 隐藏批量发送按钮 */
-#batch-btn { display: none !important; }
-/* 隐藏新建会话按钮 */
-#create-new-session { display: none !important; }
-/* 隐藏会话列表 */
-.session-list { display: none !important; }
+.rl-group-disabled {
+    border: 1.5px solid rgba(239, 68, 68, .55) !important;
+    border-radius: 14px;
+    background: repeating-linear-gradient(-45deg, rgba(239,68,68,.035), rgba(239,68,68,.035) 8px, transparent 8px, transparent 16px);
+}
+.rl-group-disabled .rl-group-body { filter: grayscale(.8); opacity: .48; }
+.rl-disabled-badge {
+    display: inline-flex;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #ef4444;
+    color: #fff !important;
+    font-size: 10px;
+    font-weight: 800;
+}
+.rl-disable-btn {
+    min-width: 34px !important;
+    border-width: 2px !important;
+}
+.rl-disable-btn.active {
+    background: #ef4444 !important;
+    border-color: #ef4444 !important;
+    color: #fff !important;
+    box-shadow: 0 0 0 3px rgba(239,68,68,.16);
+}
+
+.cloud-sync-card { max-width: 420px; }
+.cloud-sync-note {
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: rgba(var(--accent-color-rgb), .06);
+}
+.cloud-sync-divider { margin: 14px 0 8px; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+.cloud-sync-status { margin: 10px 0; font-size: 12px; color: var(--accent-color); overflow-wrap: anywhere; }
+.cloud-auto-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-secondary); margin-bottom:12px; }
+.cloud-auto-row input { accent-color: var(--accent-color); }
+.cloud-sync-actions { display:flex; gap:8px; margin-top:8px; }
+.cloud-sync-actions .modal-btn { flex:1; }

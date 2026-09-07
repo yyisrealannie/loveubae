@@ -41,6 +41,54 @@ function deduplicateContentArray(arr, baseSystemArray = []) {
     return { result, removedCount };
 }
 
+function contentSimilarity(a, b) {
+    const left = normalizeStringStrict(a).replace(/[\p{P}\p{S}\s]/gu, '');
+    const right = normalizeStringStrict(b).replace(/[\p{P}\p{S}\s]/gu, '');
+    if (left === right) return 1;
+    if (!left || !right || Math.min(left.length, right.length) < 4) return 0;
+    const prev = Array.from({ length: right.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= left.length; i++) {
+        let diagonal = prev[0];
+        prev[0] = i;
+        for (let j = 1; j <= right.length; j++) {
+            const old = prev[j];
+            prev[j] = Math.min(
+                prev[j] + 1,
+                prev[j - 1] + 1,
+                diagonal + (left[i - 1] === right[j - 1] ? 0 : 1)
+            );
+            diagonal = old;
+        }
+    }
+    return 1 - prev[right.length] / Math.max(left.length, right.length);
+}
+
+function findNearDuplicate(value, candidates, threshold = 0.9) {
+    let best = null;
+    let score = 0;
+    (candidates || []).forEach(candidate => {
+        const current = contentSimilarity(value, candidate);
+        if (current > score) { score = current; best = candidate; }
+    });
+    return score >= threshold ? { item: best, score } : null;
+}
+
+function deduplicateSimilarContentArray(arr, baseSystemArray = [], threshold = 0.9) {
+    const result = [];
+    const comparisonPool = (baseSystemArray || []).slice();
+    let removedCount = 0;
+    for (const item of arr || []) {
+        const duplicate = findNearDuplicate(item, comparisonPool, threshold);
+        if (!normalizeStringStrict(item) || duplicate) {
+            removedCount++;
+        } else {
+            result.push(item);
+            comparisonPool.push(item);
+        }
+    }
+    return { result, removedCount };
+}
+
         function cropImageToSquare(file, maxSize = 640) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -529,8 +577,11 @@ async function importAllData(file) {
             categories
         });
 
-        showNotification('恢复完成，即将刷新页面…', 'success', 2000);
-        setTimeout(() => location.reload(), 2200);
+        await loadData();
+        if (typeof renderMessages === 'function') renderMessages();
+        if (typeof updateUI === 'function') updateUI();
+        if (typeof renderReplyLibrary === 'function') renderReplyLibrary();
+        showNotification('恢复完成，数据已立即生效', 'success', 2600);
     } catch (err) {
         console.error('全量导入失败:', err);
         const msg = err && err.message ? err.message : '未知错误';

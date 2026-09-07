@@ -388,8 +388,10 @@ if (importAllBtn) {
 
                     await ChatBackup.applyBackupToStorage(backup, { selective: false });
 
-                    if (typeof showNotification === 'function') showNotification('数据恢复成功，即将刷新页面应用更改', 'success', 2000);
-                    setTimeout(function() { location.reload(); }, 2000);
+                    await loadData();
+                    if (typeof renderMessages === 'function') renderMessages();
+                    if (typeof updateUI === 'function') updateUI();
+                    if (typeof showNotification === 'function') showNotification('数据恢复成功，已立即应用', 'success', 2200);
                 } catch (err) {
                     var msg = err && err.message ? err.message : '未知错误';
                     if (typeof showNotification === 'function') showNotification('导入失败：' + msg, 'error', 5000);

@@ -186,22 +186,9 @@
 
 (function() {
     var KEY = 'keepaliveAudioEnabled';
-    var SRC = 'https://img.heliar.top/file/1772885159972_silence.m4a';
-    var _audio = null;
-    var _unlockBound = false;
+    var _wakeLock = null;
 
     function _get() { return localStorage.getItem(KEY) === 'true'; }
-
-    function _createAudio() {
-        if (_audio) return _audio;
-        _audio = new Audio(SRC);
-        _audio.loop   = true;
-        _audio.volume = 0.01;
-        _audio.preload = 'auto';
-        _audio.addEventListener('play',  function(){ _setUI(true);  });
-        _audio.addEventListener('pause', function(){ _setUI(false); });
-        return _audio;
-    }
 
     function _setUI(playing) {
         var dot  = document.getElementById('keepalive-dot');
@@ -214,33 +201,35 @@
             dot.className = 'keepalive-dot' + (playing ? ' alive' : '');
         }
         if (desc) {
-            if (!_get())      desc.textContent = '静音循环音频，防止页面被系统挂起';
-            else if (playing) desc.textContent = '运行中 · 页面已保活';
-            else              desc.textContent = '等待交互后启动…';
+            if (!_get())      desc.textContent = '保持屏幕与页面活跃，不占用音频通道';
+            else if (playing) desc.textContent = '运行中 · 不影响其他音乐软件';
+            else              desc.textContent = '切回页面后会自动恢复';
         }
         if (row)  row.style.display = _get() ? 'flex' : 'none';
         var bars = document.querySelectorAll('.keepalive-wave-bar');
         bars.forEach(function(b){ b.style.animationPlayState = playing ? 'running' : 'paused'; });
     }
 
-    function _start() {
-        var a = _createAudio();
-        var p = a.play();
-        if (p && p.then) {
-            p.catch(function(){
-                _setUI(false);
-                if (!_unlockBound) {
-                    _unlockBound = true;
-                    function unlock(){ if(_get()) a.play().catch(function(){}); _unlockBound=false; }
-                    document.addEventListener('touchstart', unlock, { once:true });
-                    document.addEventListener('click',      unlock, { once:true });
-                }
-            });
+    async function _start() {
+        if (!_get() || document.visibilityState !== 'visible') return;
+        if (!('wakeLock' in navigator)) {
+            _setUI(false);
+            return;
+        }
+        try {
+            _wakeLock = await navigator.wakeLock.request('screen');
+            _wakeLock.addEventListener('release', function(){ _wakeLock = null; _setUI(false); });
+            _setUI(true);
+        } catch (e) {
+            _setUI(false);
         }
     }
 
-    function _stop() {
-        if (_audio) { _audio.pause(); _audio.currentTime = 0; }
+    async function _stop() {
+        if (_wakeLock) {
+            try { await _wakeLock.release(); } catch(e) {}
+            _wakeLock = null;
+        }
         _setUI(false);
     }
 
@@ -254,13 +243,12 @@
             _stop();
             if (typeof showNotification === 'function') showNotification('保活音频已关闭', 'info', 1500);
         }
-        _setUI(next && _audio && !_audio.paused);
+        _setUI(next && !!_wakeLock);
     };
 
     document.addEventListener('visibilitychange', function(){
-        if (_get() && document.visibilityState === 'visible' && _audio && _audio.paused) {
-            _audio.play().catch(function(){});
-        }
+        if (_get() && document.visibilityState === 'visible') _start();
+        else if (document.visibilityState === 'hidden') _stop();
     });
 
     document.addEventListener('DOMContentLoaded', function(){
@@ -268,8 +256,8 @@
         if (_get()) _start();
     });
     setTimeout(function(){
-        _setUI(_get() && !!_audio && !_audio.paused);
-        if (_get() && (!_audio || _audio.paused)) _start();
+        _setUI(_get() && !!_wakeLock);
+        if (_get() && !_wakeLock) _start();
     }, 1800);
 })();
 
@@ -350,16 +338,26 @@
     };
 
     window._scrollToMsg = function(id) {
-        var el = document.querySelector('[data-id="'+id+'"]') || document.querySelector('[data-message-id="'+id+'"]');
+        var targetIndex = (typeof messages !== 'undefined' && Array.isArray(messages))
+            ? messages.findIndex(function(m){ return String(m.id) === String(id); })
+            : -1;
+        var el = document.querySelector('[data-id="'+id+'"]') || document.querySelector('[data-msg-id="'+id+'"]');
+        if (!el && targetIndex >= 0 && typeof renderMessages === 'function') {
+            displayedMessageCount = Math.max(displayedMessageCount, messages.length - targetIndex);
+            renderMessages(true);
+            el = document.querySelector('[data-id="'+id+'"]') || document.querySelector('[data-msg-id="'+id+'"]');
+        }
         if (el) {
-            el.scrollIntoView({behavior:'smooth',block:'center'});
-            el.style.transition='background .3s ease';
-            el.style.background='rgba(var(--accent-color-rgb),.14)';
-            setTimeout(function(){ el.style.background=''; }, 1800);
             var m = document.getElementById('stats-modal');
-            if (m && typeof hideModal==='function') setTimeout(function(){ hideModal(m); }, 350);
+            if (m && typeof hideModal==='function') hideModal(m);
+            requestAnimationFrame(function(){
+                el.scrollIntoView({behavior:'smooth',block:'center'});
+                el.style.transition='background .3s ease';
+                el.style.background='rgba(var(--accent-color-rgb),.18)';
+                setTimeout(function(){ el.style.background=''; }, 1800);
+            });
         } else {
-            if (typeof showNotification==='function') showNotification('消息不在当前视图中','info',2000);
+            if (typeof showNotification==='function') showNotification('没有找到这条消息','warning',2000);
         }
     };
 })();
@@ -1612,4 +1610,3 @@ window.tryShowDailyGreeting = function() {
         if (modal) modal.classList.remove('hidden');
     } catch(e) { console.warn('Daily greeting show error:', e); }
 };
-

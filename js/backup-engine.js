@@ -220,6 +220,7 @@
         for (var j = 0; j < localStorage.length; j++) {
             var lk = localStorage.key(j);
             if (!lk || shouldSkipKeyGroupChat(lk, flags)) continue;
+            if (/^sb-/i.test(lk) || /^milkSupabase/i.test(lk) || /^milkCloud/i.test(lk)) continue;
             try {
                 lsData[lk] = localStorage.getItem(lk);
             } catch (e2) {}

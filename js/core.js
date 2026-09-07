@@ -61,8 +61,8 @@
             settings = {};
             localforage.clear().then(() => {
                 localStorage.clear();
-                showNotification('所有数据已重置', 'info', 2000);
-                setTimeout(() => { window.location.reload(); }, 2000);
+                showNotification('所有数据已重置，页面即将刷新', 'info', 2000);
+                setTimeout(() => { window.location.href = window.location.pathname + '?reset=' + Date.now(); }, 2000);
             }).catch(e => {
                 window._skipBackup = false;
                 showNotification('清除数据时发生错误', 'error');
@@ -132,6 +132,11 @@ function loadMoreHistory() {
             });
         });
     }, 120);
+}
+
+function isChatNearBottom(container, threshold = 140) {
+    if (!container) return true;
+    return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
 }
 
 
@@ -625,28 +630,6 @@ const saveData = async () => {
     }
 
     _backupCriticalData();
-
-    // Supabase 云端同步（节流：每5分钟最多一次）
-    try {
-        if (window.SupabaseSync) {
-            const now = Date.now();
-            const lastPush = parseInt(localStorage.getItem('_last_push_ts') || '0');
-            if (now - lastPush > 5 * 60 * 1000) {
-                localStorage.setItem('_last_push_ts', now);
-                const syncPayload = {
-                    messages: messages.slice(-500), // 最近500条
-                    settings,
-                    customReplies,
-                    anniversaries,
-                    customPokes,
-                    customStatuses,
-                    customMottos,
-                    savedAt: new Date().toISOString()
-                };
-                SupabaseSync.push(syncPayload).catch(e => console.warn('[Supabase]', e));
-            }
-        }
-    } catch(e) {}
 };
 
         function initializeRandomUI() {
@@ -1227,6 +1210,7 @@ const addMessage = (message) => {
     
     const container = DOMElements.chatContainer;
     const wasEmpty = messages.length === 0;
+    const shouldStickToBottom = isChatNearBottom(container);
 
     const prevMsg = messages.length > 0 ? messages[messages.length - 1] : null;
     messages.push(message);
@@ -1266,9 +1250,11 @@ const addMessage = (message) => {
         container.appendChild(newMsgFragment);
     }
 
-    requestAnimationFrame(() => {
-        container.scrollTop = container.scrollHeight;
-    });
+    if (shouldStickToBottom) {
+        requestAnimationFrame(() => {
+            container.scrollTop = container.scrollHeight;
+        });
+    }
 
     throttledSaveData();
 };
@@ -1484,7 +1470,9 @@ if (!isBatchMode && type === 'normal') {
                 const partnerImg = DOMElements.partner.avatar.querySelector('img');
                 tiAvatar.innerHTML = partnerImg ? `<img src="${partnerImg.src}">` : '<i class="fas fa-user"></i>';
             }
-            if (DOMElements.chatContainer) DOMElements.chatContainer.scrollTop = DOMElements.chatContainer.scrollHeight;
+            if (DOMElements.chatContainer && isChatNearBottom(DOMElements.chatContainer)) {
+                DOMElements.chatContainer.scrollTop = DOMElements.chatContainer.scrollHeight;
+            }
         }
         window._pendingReplyTimer = setTimeout(() => {
             window._pendingReplyTimer = null;
@@ -1625,7 +1613,9 @@ if (!isBatchMode && type === 'normal') {
                     const partnerImg = DOMElements.partner.avatar.querySelector('img');
                     tiAvatar.innerHTML = partnerImg ? `<img src="${partnerImg.src}">` : '<i class="fas fa-user"></i>';
                 }
-                DOMElements.chatContainer.scrollTop = DOMElements.chatContainer.scrollHeight;
+                if (isChatNearBottom(DOMElements.chatContainer)) {
+                    DOMElements.chatContainer.scrollTop = DOMElements.chatContainer.scrollHeight;
+                }
             }
 
             let changed = false;
@@ -1661,10 +1651,9 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                 return;
             }
 
-            // 30%概率触发合并回复：把2-3条词条拼成一条发出
-            const shouldMerge = Math.random() < 0.30;
-            const replyCount = shouldMerge ? 1 : (Math.random() < 0.75 ? 1: (Math.random() < 0.95 ? 2: 3));
-            const mergeCount = shouldMerge ? (Math.random() < 0.6 ? 2 : 3) : 1;
+            const shouldMergeReplies = Math.random() < 0.30;
+            const mergeChunkCount = shouldMergeReplies ? (Math.random() < 0.75 ? 2 : 3) : 1;
+            const replyCount = shouldMergeReplies ? 1 : (Math.random() < 0.75 ? 1: (Math.random() < 0.95 ? 2: 3));
             if (!customReplies || customReplies.length === 0) {
                 showNotification('回复库为空，请先到「自定义回复」中添加内容', 'info', 3500);
                 return;
@@ -1688,6 +1677,11 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                 return;
             }
 
+            if (typeof window.maybeTriggerProactiveEnvelope === 'function' &&
+                window.maybeTriggerProactiveEnvelope(replyPoolOnce)) {
+                return;
+            }
+
             // 确认有可用回复后再展示“正在输入中”，避免空转
             showTypingIndicator();
             let delay = 0;
@@ -1702,28 +1696,18 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                     const replyPool = replyPoolOnce;
                     // 被屏蔽或无效项直接换下一个，尽量保证每次都产出可用回复
                     let replyText = '';
-                    for (let t = 0; t < 6; t++) {
-                        const picked = replyPool[Math.floor(Math.random() * replyPool.length)];
-                        if (picked && String(picked).trim()) {
-                            replyText = String(picked).trim();
-                            break;
-                        }
-                    }
-                    // 合并模式：额外再抽几条拼在一起
-                    if (shouldMerge && mergeCount > 1 && replyText) {
-                        const extraParts = [replyText];
-                        for (let m = 1; m < mergeCount; m++) {
-                            for (let t = 0; t < 6; t++) {
-                                const picked = replyPool[Math.floor(Math.random() * replyPool.length)];
-                                if (picked && String(picked).trim()) {
-                                    extraParts.push(String(picked).trim());
-                                    break;
-                                }
+                    const pickedParts = [];
+                    for (let part = 0; part < mergeChunkCount; part++) {
+                        for (let t = 0; t < 6; t++) {
+                            const picked = replyPool[Math.floor(Math.random() * replyPool.length)];
+                            const clean = picked && String(picked).trim();
+                            if (clean && !pickedParts.includes(clean)) {
+                                pickedParts.push(clean);
+                                break;
                             }
                         }
-                        replyText = extraParts.join('');
                     }
-
+                    replyText = pickedParts.join('\n');
                     if (!replyText && i === replyCount - 1) {
                         (function(){try{if(window._typingIndicatorAutoHideTimer){clearTimeout(window._typingIndicatorAutoHideTimer);window._typingIndicatorAutoHideTimer=null;}}catch(e){}var _tiW=document.getElementById('typing-indicator-wrapper');if(_tiW){var _tiInner=_tiW.querySelector('.typing-indicator');if(_tiInner){_tiInner.classList.add('hiding');setTimeout(function(){_tiW.style.display='none';if(_tiInner)_tiInner.classList.remove('hiding');},240);}else{_tiW.style.display='none';}}})();
                         return;
@@ -2003,7 +1987,15 @@ function showModal(modalElement, focusElement = null) {
                     const parts = exportObj.exportModules.join('+');
                     const fileName = `chat-export-${parts}-${new Date().toISOString().slice(0,10)}.json`;
 
-                    // 直接下载，不使用navigator.share（iOS上会崩溃）
+                    if (navigator.share && /Mobile|Android|iPhone|iPad/.test(navigator.userAgent)) {
+                        const blob = new Blob([dataStr], { type: 'application/json;charset=utf-8' });
+                        const file = new File([blob], fileName, { type: 'application/json' });
+                        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                            navigator.share({ files: [file], title: '传讯数据导出', text: `导出日期：${new Date().toLocaleDateString()}` })
+                                .catch(() => fallbackExport(dataStr, fileName));
+                            return;
+                        }
+                    }
                     fallbackExport(dataStr, fileName);
                 } catch (error) {
                     console.error('导出失败:', error);
@@ -2334,6 +2326,18 @@ window.initializeSession = async function() {
     await localforage.setItem(`${APP_PREFIX}lastSessionId`, SESSION_ID);
 }
 
+window.switchSessionInPlace = async function(sessionId) {
+    if (!sessionId || sessionId === SESSION_ID) return;
+    if (!sessionList.some(s => s.id === sessionId)) throw new Error('会话不存在');
+    await saveData();
+    SESSION_ID = sessionId;
+    history.replaceState(null, '', window.location.pathname + window.location.search + '#' + sessionId);
+    await localforage.setItem(`${APP_PREFIX}lastSessionId`, SESSION_ID);
+    await loadData();
+    renderMessages();
+    updateUI();
+};
+
 document.addEventListener('DOMContentLoaded', function() {
     const chatArea = document.querySelector('.main-chat-area');
     const historyLoader = document.getElementById('history-loader');
@@ -2351,6 +2355,3 @@ document.addEventListener('DOMContentLoaded', function() {
         observer.observe(historyLoader);
     }
 });
-
-
-

@@ -1416,6 +1416,16 @@ function initComboMenu() {
         '图片','表情','语音','【图片】','【表情】','【语音】','撤回了一条消息','已撤回'
     ]);
 
+    function isStopWord(word) {
+        if (STOP_WORDS.has(word)) return true;
+        try {
+            var custom = JSON.parse(localStorage.getItem('wordCloudBlacklist') || '[]');
+            return Array.isArray(custom) && custom.some(function(item) {
+                return String(item).trim().toLowerCase() === String(word).trim().toLowerCase();
+            });
+        } catch (e) { return false; }
+    }
+
     function tokenize(text) {
         text = text
             .replace(/https?:\/\/\S+/g, '')
@@ -1431,7 +1441,7 @@ function initComboMenu() {
         // 先扫一遍提取4字词
         for (var i = 0; i + 4 <= cn.length; i++) {
             var w4 = cn.slice(i, i + 4);
-            if (!STOP_WORDS.has(w4)) {
+            if (!isStopWord(w4)) {
                 words[w4] = (words[w4] || 0) + 2.4;
                 covered[i] = covered[i+1] = covered[i+2] = covered[i+3] = true;
                 i += 3; // 跳过已覆盖字符
@@ -1441,7 +1451,7 @@ function initComboMenu() {
         covered = new Array(cn.length).fill(false); // 重置，用于3字
         for (var j = 0; j + 3 <= cn.length; j++) {
             var w3 = cn.slice(j, j + 3);
-            if (!STOP_WORDS.has(w3)) {
+            if (!isStopWord(w3)) {
                 words[w3] = (words[w3] || 0) + 1.8;
                 j += 2;
             }
@@ -1449,13 +1459,13 @@ function initComboMenu() {
         // 2字词：步长2，非重叠，不与已有词重复计数
         for (var k = 0; k + 2 <= cn.length; k += 2) {
             var w2 = cn.slice(k, k + 2);
-            if (!STOP_WORDS.has(w2)) {
+            if (!isStopWord(w2)) {
                 words[w2] = (words[w2] || 0) + 1;
             }
         }
         // 英文单词（长度≥3）
         (text.match(/[a-z]{3,}/g) || []).forEach(function(w) {
-            if (!STOP_WORDS.has(w)) words[w] = (words[w] || 0) + 1;
+            if (!isStopWord(w)) words[w] = (words[w] || 0) + 1;
         });
         return words;
     }
@@ -1699,7 +1709,10 @@ function initComboMenu() {
                 +     '<button class="wc-view-btn'+(cur==='partner'?' active':'')+'" data-view="partner">'+pName+'</button>'
                 +     '<button class="wc-view-btn'+(cur==='me'?' active':'')+'" data-view="me">'+mName+'</button>'
                 +   '</div></div>'
-                +   '<button class="wc-regen-btn" title="换一种布局"><i class="fas fa-redo"></i></button>'
+                +   '<div style="display:flex;gap:6px;">'
+                +     '<button class="wc-blacklist-btn wc-regen-btn" title="关键词黑名单"><i class="fas fa-filter"></i></button>'
+                +     '<button class="wc-regen-btn wc-layout-btn" title="换一种布局"><i class="fas fa-redo"></i></button>'
+                +   '</div>'
                 + '</div>'
                 + '<div class="wc-summary"></div>'
                 + '<div class="wc-canvas-wrap">'
@@ -1714,13 +1727,25 @@ function initComboMenu() {
                 var b = e.target.closest('.wc-view-btn');
                 if (b) renderView(b.dataset.view);
             });
-            container.querySelector('.wc-regen-btn').addEventListener('click', function() {
+            container.querySelector('.wc-layout-btn').addEventListener('click', function() {
                 var canvas = container.querySelector('#wc-canvas');
                 var d = data(container._currentView);
                 var shuffled = d.words.slice().sort(function(a, b) {
                     return a.count !== b.count ? b.count - a.count : Math.random() - 0.5;
                 });
                 drawWordCloud(canvas, shuffled);
+            });
+            container.querySelector('.wc-blacklist-btn').addEventListener('click', function(e) {
+                e.stopPropagation();
+                var saved = [];
+                try { saved = JSON.parse(localStorage.getItem('wordCloudBlacklist') || '[]'); } catch(err) {}
+                var input = prompt('输入要从词云排除的关键词（用逗号或换行分隔）:', saved.join('，'));
+                if (input === null) return;
+                var items = input.split(/[,，\n]/).map(function(x){ return x.trim().toLowerCase(); }).filter(Boolean);
+                localStorage.setItem('wordCloudBlacklist', JSON.stringify(Array.from(new Set(items))));
+                container.innerHTML = '';
+                window.renderWordCloud();
+                if (typeof showNotification === 'function') showNotification('词云黑名单已更新', 'success');
             });
         }
 

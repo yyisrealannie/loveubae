@@ -603,7 +603,7 @@ function _renderCardViewWithGroups(list, items) {
 
 function _renderGroupBlock(list, group, groupItems, disabledSet, isUngrouped = false) {
     const section = document.createElement('div');
-    section.className = 'rl-group-block';
+    section.className = 'rl-group-block' + (group.disabled ? ' rl-group-disabled' : '');
     const isCollapsed = group._collapsed || false;
     const isDisabled = group.disabled;
     const colorDot = group.color || '#868E96';
@@ -613,7 +613,7 @@ function _renderGroupBlock(list, group, groupItems, disabledSet, isUngrouped = f
             <div class="rl-group-tag" id="grp-tag-${group.id}" title="${isDisabled ? '点击启用此分组' : '点击屏蔽此分组'}">
                 <span style="width:8px;height:8px;border-radius:50%;background:${colorDot};flex-shrink:0;"></span>
                 <span style="font-size:12px;font-weight:700;color:${colorDot};">${group.name}</span>
-                ${isDisabled ? `<span title="已屏蔽" style="color:${colorDot};">${ICONS.eyeOff}</span>` : ''}
+                ${isDisabled ? `<span class="rl-disabled-badge" title="已禁用">已禁用</span>` : ''}
             </div>
             <span style="font-size:11px;color:var(--text-secondary);">${groupItems.length} 条</span>
             ${_batchModeActive && groupItems.length > 0 ? (() => {
@@ -772,7 +772,7 @@ function _createCard(item, index, disabledSet) {
             ${groupBadge}
         </div>
         <div class="rl-card-actions">
-            <button class="rl-act-btn ${isDisabled ? 'active' : ''}" data-action="disable" title="${isDisabled ? '启用' : '屏蔽'}">
+            <button class="rl-act-btn rl-disable-btn ${isDisabled ? 'active' : ''}" data-action="disable" title="${isDisabled ? '点击启用' : '点击禁用'}">
                 ${isDisabled ? ICONS.eye : ICONS.eyeOff}
             </button>
             <button class="rl-act-btn" data-action="tag" title="分组">
@@ -957,24 +957,24 @@ function _batchToggleDisableStickers() {
 
 function _runDedup() {
     let totalRemoved = 0;
-    const crDedup = deduplicateContentArray(customReplies, CONSTANTS.REPLY_MESSAGES);
+    const crDedup = deduplicateSimilarContentArray(customReplies, CONSTANTS.REPLY_MESSAGES, 0.9);
     customReplies = crDedup.result; totalRemoved += crDedup.removedCount;
-    const cpDedup = deduplicateContentArray(customPokes);
+    const cpDedup = deduplicateSimilarContentArray(customPokes, [], 0.9);
     customPokes = cpDedup.result; totalRemoved += cpDedup.removedCount;
-    const csDedup = deduplicateContentArray(customStatuses);
+    const csDedup = deduplicateSimilarContentArray(customStatuses, [], 0.9);
     customStatuses = csDedup.result; totalRemoved += csDedup.removedCount;
-    const cmDedup = deduplicateContentArray(customMottos);
+    const cmDedup = deduplicateSimilarContentArray(customMottos, [], 0.9);
     customMottos = cmDedup.result; totalRemoved += cmDedup.removedCount;
-    const ciDedup = deduplicateContentArray(customIntros);
+    const ciDedup = deduplicateSimilarContentArray(customIntros, [], 0.9);
     customIntros = ciDedup.result; totalRemoved += ciDedup.removedCount;
     const preEmoji = customEmojis.length;
     customEmojis = [...new Set(customEmojis)];
     totalRemoved += (preEmoji - customEmojis.length);
     if (totalRemoved > 0) {
         throttledSaveData(); renderReplyLibrary();
-        showNotification(`🧹 共清理了 ${totalRemoved} 条重复内容`, 'success');
+        showNotification(`🧹 共清理了 ${totalRemoved} 条重复或高度相似内容`, 'success');
     } else {
-        showNotification('✨ 没有重复内容', 'info');
+        showNotification('✨ 没有发现 90% 以上相似内容', 'info');
     }
 }
 
@@ -994,7 +994,7 @@ function _showGroupManager() {
                 <div style="
                     display:flex;align-items:center;gap:10px;padding:12px 14px;
                     border-radius:13px;border:1.5px solid var(--border-color);
-                    background:var(--primary-bg);${g.disabled ? 'opacity:0.55;' : ''}
+                    background:var(--primary-bg);${g.disabled ? 'opacity:0.65;border-color:#ef4444;box-shadow:inset 4px 0 #ef4444;' : ''}
                     transition:all 0.15s;
                 ">
                     <span style="width:12px;height:12px;border-radius:50%;background:${g.color||'#868E96'};flex-shrink:0;box-shadow:0 0 0 2px ${g.color||'#868E96'}30;"></span>
@@ -1005,7 +1005,7 @@ function _showGroupManager() {
                         background:${g.disabled ? 'var(--accent-color)' : 'transparent'};
                         color:${g.disabled ? '#fff' : 'var(--text-secondary)'};
                         cursor:pointer;display:flex;align-items:center;justify-content:center;
-                    " title="${g.disabled ? '启用' : '屏蔽'}">${g.disabled ? ICONS.eye : ICONS.eyeOff}</button>
+                    " title="${g.disabled ? '点击启用' : '点击禁用'}">${g.disabled ? ICONS.eye : ICONS.eyeOff}</button>
                     <button data-action="edit" data-i="${i}" style="
                         width:28px;height:28px;border-radius:8px;border:1px solid var(--border-color);
                         background:transparent;color:var(--text-secondary);cursor:pointer;
@@ -1368,6 +1368,13 @@ function editItem(index, oldText) {
         newText = prompt('修改内容:', oldText);
     }
     if (newText === null || newText.trim() === '') return;
+    const editPool = currentSubTab === 'custom' ? [...CONSTANTS.REPLY_MESSAGES, ...customReplies]
+        : currentSubTab === 'pokes' ? customPokes
+        : currentSubTab === 'statuses' ? customStatuses
+        : currentSubTab === 'mottos' ? customMottos
+        : currentSubTab === 'intros' ? customIntros : [];
+    const near = findNearDuplicate(newText.trim(), editPool.filter(item => item !== oldText), 0.9);
+    if (near && !confirm(`检测到约 ${Math.round(near.score * 100)}% 相似的词条：\n\n${near.item}\n\n仍要保存吗？`)) return;
     if (_tabHasGroups()) {
         const ctx = _getGroupCtx();
         if (ctx.groups) {
@@ -2069,7 +2076,19 @@ function _showBatchAddDialog() {
     const countEl = panel.querySelector('#batch-add-count');
     ta.addEventListener('input', () => {
         const lines = ta.value.split('\n').filter(l => l.trim());
-        countEl.textContent = `${lines.length} 条`;
+        const basePool = currentSubTab === 'custom'
+            ? [...CONSTANTS.REPLY_MESSAGES, ...customReplies]
+            : currentSubTab === 'pokes' ? customPokes
+            : currentSubTab === 'statuses' ? customStatuses
+            : currentSubTab === 'mottos' ? customMottos : [];
+        let similar = 0;
+        const checked = basePool.slice();
+        lines.forEach(line => {
+            if (findNearDuplicate(line.trim(), checked, 0.9)) similar++;
+            else checked.push(line.trim());
+        });
+        countEl.textContent = `${lines.length} 条${similar ? ` · ${similar} 条疑似重复` : ''}`;
+        countEl.style.color = similar ? '#ef4444' : '';
     });
     ta.addEventListener('focus', e => { e.target.style.borderColor = 'var(--accent-color)'; });
     ta.addEventListener('blur', e => { e.target.style.borderColor = 'var(--border-color)'; });
@@ -2139,14 +2158,12 @@ function _showBatchAddDialog() {
         let added = 0, skipped = 0;
         const newItems = [];
         lines.forEach(val => {
-            const norm = normalizeStringStrict(val);
-            const isDup = currentSubTab === 'custom'
-                ? (customReplies.some(r => normalizeStringStrict(r) === norm) || CONSTANTS.REPLY_MESSAGES.some(r => normalizeStringStrict(r) === norm))
-                : currentSubTab === 'pokes'
-                ? customPokes.some(r => normalizeStringStrict(r) === norm)
-                : currentSubTab === 'statuses'
-                ? customStatuses.some(r => normalizeStringStrict(r) === norm)
-                : false;
+            const pool = currentSubTab === 'custom'
+                ? [...CONSTANTS.REPLY_MESSAGES, ...customReplies]
+                : currentSubTab === 'pokes' ? customPokes
+                : currentSubTab === 'statuses' ? customStatuses
+                : currentSubTab === 'mottos' ? customMottos : [];
+            const isDup = !!findNearDuplicate(val, pool, 0.9);
             if (isDup) { skipped++; return; }
             if (currentSubTab === 'custom') { customReplies.push(val); newItems.push(val); }
             else if (currentSubTab === 'pokes') { customPokes.push(val); newItems.push(val); }
@@ -2319,6 +2336,12 @@ function initReplyLibraryListeners() {
                 else if (currentSubTab === 'mottos' && customMottos.some(r => normalizeStringStrict(r) === valNorm)) isDup = true;
                 else if (currentSubTab === 'intros' && customIntros.some(r => normalizeStringStrict(r) === valNorm)) isDup = true;
                 if (isDup) { showNotification('该内容已存在', 'warning'); return; }
+                const existingPool = currentSubTab === 'pokes' ? customPokes
+                    : currentSubTab === 'statuses' ? customStatuses
+                    : currentSubTab === 'mottos' ? customMottos
+                    : currentSubTab === 'intros' ? customIntros : [];
+                const near = findNearDuplicate(val, existingPool, 0.9);
+                if (near && !confirm(`检测到约 ${Math.round(near.score * 100)}% 相似的词条：\n\n${near.item}\n\n仍要添加吗？`)) return;
                 if (currentSubTab === 'pokes') customPokes.unshift(val);
                 else if (currentSubTab === 'statuses') customStatuses.unshift(val);
                 else if (currentSubTab === 'mottos') customMottos.unshift(val);

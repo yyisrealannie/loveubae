@@ -65,8 +65,8 @@ function showEnvelopeReplyPopup(letter) {
         <div style="display:flex;align-items:center;gap:10px;">
             <span style="font-size:26px;">💌</span>
             <div>
-                <div style="font-size:14px;font-weight:700;color:var(--text-primary);">收到了一封回信</div>
-                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;opacity:0.8;">Ta 给你写了回信，快去看看吧~</div>
+                <div style="font-size:14px;font-weight:700;color:var(--text-primary);">${letter.proactive ? '收到了一封拼贴信' : '收到了一封回信'}</div>
+                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;opacity:0.8;">${letter.proactive ? 'Ta 主动给你拼了一封信，快去看看吧~' : 'Ta 给你写了回信，快去看看吧~'}</div>
             </div>
         </div>
         <div style="display:flex;gap:8px;">
@@ -138,6 +138,49 @@ function generateEnvelopeReplyText() {
     }
     return replyContent;
 }
+
+window.maybeTriggerProactiveEnvelope = function(sourcePool) {
+    const cooldownMs = 2 * 60 * 60 * 1000;
+    const key = getStorageKey('lastProactiveEnvelopeAt');
+    const lastAt = Number(localStorage.getItem(key) || 0);
+    if (Date.now() - lastAt < cooldownMs || Math.random() >= 0.08) return false;
+
+    const pool = Array.from(new Set((sourcePool || customReplies || [])
+        .map(item => String(item || '').trim())
+        .filter(Boolean)));
+    if (!pool.length) return false;
+
+    const shuffled = pool.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    const pieces = shuffled.slice(0, Math.min(20, shuffled.length));
+    while (pieces.length < 20 && pool.length) {
+        pieces.push(pool[Math.floor(Math.random() * pool.length)]);
+    }
+
+    const letter = {
+        id: 'proactive_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        content: pieces.join(' · '),
+        receivedTime: Date.now(),
+        timestamp: Date.now(),
+        isNew: true,
+        proactive: true
+    };
+    envelopeData.inbox.push(letter);
+    localStorage.setItem(key, String(Date.now()));
+    saveEnvelopeData();
+    showEnvelopeReplyPopup(letter);
+    addMessage({
+        id: Date.now() + 1,
+        text: `${(settings && settings.partnerName) || '对方'} 给你寄来了一封拼贴信`,
+        timestamp: new Date(),
+        type: 'system'
+    });
+    if (typeof playSound === 'function') playSound('message');
+    return true;
+};
 
 
 window.switchEnvTab = function(tab) {
@@ -418,4 +461,3 @@ function handleSendEnvelope() {
     switchEnvTab('outbox');
     showNotification(`信件已寄出，预计 ${Math.floor(randomHours)} 小时后收到回信 ✉️`, 'success');
 }
-

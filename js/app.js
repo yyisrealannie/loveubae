@@ -1,7 +1,4 @@
 document.addEventListener('DOMContentLoaded', async () => {
-    // 初始化云同步
-    if (typeof SupabaseSync !== 'undefined') SupabaseSync.init();
-
     const loaderBar = document.getElementById('loader-tech-bar');
     const welcomeSubtitle = document.querySelector('.welcome-subtitle-scramble');
     const welcomeScreen = document.getElementById('welcome-animation');
@@ -64,11 +61,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         setInterval(checkStatusChange, 60000);
 
-        // 跳过开场介绍，直接标记为已完成
-        await localforage?.setItem(APP_PREFIX + 'tour_seen', true).catch(() => {});
+        if (window.localforage) localforage.setItem(APP_PREFIX + 'tour_seen', true).catch(() => {});
 
         updateLoader('连接成功，欢迎回来。', '100%');
-        setTimeout(hideWelcomeScreen, 3500);
+        hideWelcomeScreen();
 
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') {
@@ -233,28 +229,8 @@ if (myStickerQuickUpload) {
 }
 
 window.addEventListener('load', function() {
-    setTimeout(function() {
-        try {
-            if (localStorage.getItem('dailyGreetingShown') === new Date().toDateString()) return;
-            try { if (typeof checkPartnerDailyMood === 'function') checkPartnerDailyMood(); } catch(e2) { console.warn('checkPartnerDailyMood error:', e2); }
-            if (typeof _buildDailyGreeting === 'function') _buildDailyGreeting();
-            if (window.localforage && window.APP_PREFIX) {
-                localforage.getItem(window.APP_PREFIX + 'tour_seen').then(function(seen) {
-                    if (seen) {
-                        var modal = document.getElementById('daily-greeting-modal');
-                        if (modal) modal.classList.remove('hidden');
-                        localStorage.setItem('dailyGreetingShown', new Date().toDateString());
-                    }
-                }).catch(function() {
-                    var modal = document.getElementById('daily-greeting-modal');
-                    if (modal) modal.classList.remove('hidden');
-                    localStorage.setItem('dailyGreetingShown', new Date().toDateString());
-                });
-            } else {
-                var modal = document.getElementById('daily-greeting-modal');
-                if (modal) modal.classList.remove('hidden');
-                localStorage.setItem('dailyGreetingShown', new Date().toDateString());
-            }
-        } catch(e) { console.warn('Daily greeting timing error:', e); }
-    }, 4500);
+    try {
+        if (typeof checkPartnerDailyMood === 'function') checkPartnerDailyMood();
+        if (typeof _buildDailyGreeting === 'function') _buildDailyGreeting();
+    } catch(e) { console.warn('Daily greeting preparation error:', e); }
 }, { once: true });

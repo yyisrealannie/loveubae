@@ -7,26 +7,21 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#000000">
+    <meta name="description" content="一款可自定义、可离线使用并支持跨设备同步的私人字卡聊天空间。">
+    <link rel="manifest" href="manifest.webmanifest">
 
     <title>传讯</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="icon" type="image/png" sizes="192x192" href="https://file.youtochat.com/images/20260216/1771224856844_qdqqd.jpeg">
-    <link rel="apple-touch-icon" href="https://file.youtochat.com/images/20260216/1771224856844_qdqqd.jpeg">
-    <meta name="apple-mobile-web-app-title" content="loveubae">
-    <link rel="manifest" href="manifest.json">
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js').catch(() => {});
-        });
-      }
-    </script>
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <meta name="apple-mobile-web-app-title" content="传讯">
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <link rel="stylesheet" href="css/styles.css">
 
@@ -203,8 +198,8 @@
                 </div>
             </div>
             <div class="header-actions">
-                <button id="session-manager-btn" class="action-btn" style="display:none" title="会话管理"><i class="fas fa-comments"></i></button>
-                <button id="group-chat-btn" class="action-btn" style="display:none" title="群聊设置"><i class="fas fa-users"></i></button>
+                <button id="session-manager-btn" class="action-btn" title="会话管理"><i class="fas fa-comments"></i></button>
+                <button id="group-chat-btn" class="action-btn" title="群聊设置"><i class="fas fa-users"></i></button>
                 <button id="daily-greeting-btn" class="action-btn" title="今日公告" onclick="reopenDailyGreeting()"><i class="fas fa-newspaper"></i></button>
                 <button id="theme-toggle" class="action-btn" title="切换主题"><i class="fas fa-moon"></i></button>
                 <button id="settings-btn" class="action-btn" title="设置"><i class="fas fa-cog"></i></button>
@@ -324,7 +319,7 @@
                     <button class="collapsed-extra-btn" id="combo-btn-extra" title="表情拍一拍">
                         <i class="fas fa-laugh-beam"></i>
                     </button>
-                    <button class="collapsed-extra-btn" id="batch-btn-extra" title="批量发送" style="display:none">
+                    <button class="collapsed-extra-btn" id="batch-btn-extra" title="批量发送">
                         <i class="fas fa-layer-group"></i>
                     </button>
                     <button class="collapsed-extra-btn" title="字卡回复" onclick="(function(){document.getElementById('collapsed-extras-panel').style.display='none';document.getElementById('collapse-expand-btn').classList.remove('open');showModal(document.getElementById('custom-replies-modal'));})();">
@@ -354,7 +349,7 @@
     
     <div class="input-buttons">
     <button class="continue-btn input-btn" id="continue-btn" title="让对方继续说"><i class="fas fa-ellipsis-h"></i></button>
-        <button class="batch-btn input-btn collapse-hideable" id="batch-btn" title="批量发送模式" style="display:none"><i class="fas fa-layer-group"></i></button>
+        <button class="batch-btn input-btn collapse-hideable" id="batch-btn" title="批量发送模式"><i class="fas fa-layer-group"></i></button>
         <button class="send-btn input-btn" id="send-btn" title="发送消息"><i class="fas fa-paper-plane"></i></button>
         
         <div class="sticker-picker-popover" id="user-sticker-picker">
@@ -1295,14 +1290,14 @@
                             </div>
                         </div>
                     </div>
-                    <p class="cs-group-label" style="margin-top:16px;">挂机保活音频</p>
+                    <p class="cs-group-label" style="margin-top:16px;">页面保活</p>
                     <div class="cs-card">
                         <div class="setting-pill-row" id="keepalive-audio-toggle" onclick="window._toggleKeepaliveAudio && window._toggleKeepaliveAudio()">
                             <span class="setting-pill-icon" style="position:relative;">
                                 <i class="fas fa-broadcast-tower"></i>
                                 <span id="keepalive-dot" class="keepalive-dot"></span>
                             </span>
-                            <span class="setting-pill-label">后台保活 <span style="font-size:11px;color:var(--text-secondary);font-weight:400;" id="keepalive-audio-desc">静音循环音频，防止页面被系统挂起</span></span>
+                            <span class="setting-pill-label">活跃保护 <span style="font-size:11px;color:var(--text-secondary);font-weight:400;" id="keepalive-audio-desc">保持屏幕与页面活跃，不占用音频通道</span></span>
                             <div class="setting-pill-switch" id="keepalive-audio-switch"><div class="setting-pill-knob"></div></div>
                         </div>
                         <div id="keepalive-bar-row" style="display:none;align-items:center;gap:3px;padding:8px 14px 10px;border-top:1px solid var(--border-color);">
@@ -1478,7 +1473,7 @@
         </div>
     </div>
 
-    <div class="modal" id="session-modal" style="display:none">
+    <div class="modal" id="session-modal">
         <div class="modal-content">
             <div class="modal-title">
                 <i class="fas fa-comments"></i><span>会话管理</span>
@@ -2141,6 +2136,12 @@
             <input type="text" class="modal-input" id="new-song-title" placeholder="歌曲名称 (例如: 这里的风景)">
             <input type="text" class="modal-input" id="new-song-sub" placeholder="歌手/备注 (例如: 你的名字)">
             <input type="text" class="modal-input" id="new-song-url" placeholder="音频链接 (mp3/m4a 链接)">
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+                <span style="font-size:12px;color:var(--text-secondary);">或者</span>
+                <button type="button" class="modal-btn modal-btn-secondary" id="pick-song-file" style="flex:1;"><i class="fas fa-upload"></i> 上传本地音频</button>
+                <input type="file" id="new-song-file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac" style="display:none;">
+            </div>
+            <div id="new-song-file-name" style="font-size:11px;color:var(--text-secondary);margin-top:6px;min-height:16px;"></div>
             <div class="modal-buttons">
                 <button class="modal-btn modal-btn-secondary" id="cancel-add-song">取消</button>
                 <button class="modal-btn modal-btn-primary" id="confirm-add-song">添加播放</button>
@@ -2222,7 +2223,6 @@
 
 <div id="dg-editor-modal" style="display:none;"></div>
     <!-- == 核心层 == -->
-    <script src="js/supabase-sync.js"></script>
     <script src="js/config.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/backup-engine.js"></script>
@@ -2241,8 +2241,14 @@
     <script src="js/games.js"></script> 
     <script src="js/features.js"></script> 
     <script src="js/data.js"></script>
+    <script src="js/cloud-sync.js"></script>
     <script src="js/onboarding.js"></script> 
     <script src="js/listeners.js"></script>
     <script src="js/app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(console.warn));
+        }
+    </script>
 </body>
 </html>

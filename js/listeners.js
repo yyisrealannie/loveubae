@@ -375,20 +375,22 @@ fileInput.addEventListener('change', function(e) {
 
             DOMElements.partner.name.addEventListener('click', () => openNameModal(true));
             DOMElements.me.name.addEventListener('click', () => openNameModal(false));
-            // 单击：打开头像设置；双击：触发拍一拍
             let partnerAvatarClickTimer = null;
             DOMElements.partner.avatar.addEventListener('click', () => {
-                if (partnerAvatarClickTimer) {
-                    // 双击
-                    clearTimeout(partnerAvatarClickTimer);
-                    partnerAvatarClickTimer = null;
-                    if (typeof window._triggerPartnerPoke === 'function') window._triggerPartnerPoke();
-                } else {
-                    partnerAvatarClickTimer = setTimeout(() => {
-                        partnerAvatarClickTimer = null;
-                        openAvatarModal(true);
-                    }, 280);
+                clearTimeout(partnerAvatarClickTimer);
+                partnerAvatarClickTimer = setTimeout(() => openAvatarModal(true), 260);
+            });
+            DOMElements.partner.avatar.addEventListener('dblclick', (event) => {
+                event.preventDefault();
+                clearTimeout(partnerAvatarClickTimer);
+                let pokeText = `${settings.myName || '我'} 拍了拍 ${settings.partnerName || '对方'}`;
+                if (typeof window._sanitizePokeTextForDisplay === 'function') {
+                    pokeText = window._sanitizePokeTextForDisplay(pokeText);
                 }
+                addMessage({ id: Date.now(), text: _formatPokeText(pokeText), timestamp: new Date(), type: 'system' });
+                if (typeof playSound === 'function') playSound('my_poke');
+                const delayRange = settings.replyDelayMax - settings.replyDelayMin;
+                setTimeout(simulateReply, settings.replyDelayMin + Math.random() * delayRange);
             });
             DOMElements.me.avatar.addEventListener('click', () => openAvatarModal(false));
 
@@ -1527,9 +1529,7 @@ localforage.keys().then(keys => {
 if (sessionId === currentSessionId) {
     const newCurrentId = sessionList[0].id;
     localforage.setItem(`${APP_PREFIX}customThemes`, customThemes);
-    window.location.hash = newCurrentId;
-    // 不再强制reload，改为通知用户
-    showNotification('会话已删除', 'success');
+    window.switchSessionInPlace(newCurrentId).catch(() => showNotification('切换会话失败', 'error'));
 } else {
     renderSessionList();
     showNotification('会话已删除', 'success');
@@ -1538,8 +1538,11 @@ if (sessionId === currentSessionId) {
             } else {
 
                 if (sessionId !== SESSION_ID) {
-                    window.location.hash = sessionId;
-                    showNotification('已切换会话', 'success');
+                    if (confirm('确定切换到这个会话吗？')) {
+                        window.switchSessionInPlace(sessionId)
+                            .then(() => hideModal(DOMElements.sessionModal.modal))
+                            .catch(() => showNotification('切换会话失败', 'error'));
+                    }
                 }
             }
         });
@@ -2401,6 +2404,9 @@ const savedCover = safeGetItem(APP_PREFIX + 'playerCover');
     const newSongTitle = document.getElementById('new-song-title');
     const newSongSub = document.getElementById('new-song-sub');
     const newSongUrl = document.getElementById('new-song-url');
+    const newSongFile = document.getElementById('new-song-file');
+    const pickSongFile = document.getElementById('pick-song-file');
+    const newSongFileName = document.getElementById('new-song-file-name');
     const confirmAddSongBtn = document.getElementById('confirm-add-song');
     const cancelAddSongBtn = document.getElementById('cancel-add-song');
     const modalTitleElem = addSongModal.querySelector('.modal-title span');
@@ -2411,6 +2417,27 @@ const savedCover = safeGetItem(APP_PREFIX + 'playerCover');
     let editModeIndex = -1;
     let searchTerm = '';
     let isSearchVisible = false;
+    let pendingSongFileData = null;
+
+    pickSongFile.addEventListener('click', () => newSongFile.click());
+    newSongFile.addEventListener('change', () => {
+        const file = newSongFile.files && newSongFile.files[0];
+        pendingSongFileData = null;
+        if (!file) return;
+        if (file.size > 20 * 1024 * 1024) {
+            showNotification('本地音频请控制在 20MB 以内', 'error');
+            newSongFile.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            pendingSongFileData = reader.result;
+            newSongFileName.textContent = `已选择：${file.name}`;
+            if (!newSongTitle.value.trim()) newSongTitle.value = file.name.replace(/\.[^.]+$/, '');
+        };
+        reader.onerror = () => showNotification('音频读取失败', 'error');
+        reader.readAsDataURL(file);
+    });
 
     function loadSong(index) {
         if (songs.length === 0) return;
@@ -2482,7 +2509,10 @@ const savedCover = safeGetItem(APP_PREFIX + 'playerCover');
         editModeIndex = index;
         newSongTitle.value = song.title;
         newSongSub.value = song.sub;
-        newSongUrl.value = song.url;
+        newSongUrl.value = song.isLocalFile ? '' : song.url;
+        pendingSongFileData = null;
+        newSongFile.value = '';
+        newSongFileName.textContent = song.isLocalFile ? '当前使用本地音频；不重新选择则保留' : '';
         modalTitleElem.innerText = "编辑歌曲信息";
         confirmAddSongBtn.innerText = "保存修改";
         showModal(addSongModal);
@@ -2493,6 +2523,9 @@ const savedCover = safeGetItem(APP_PREFIX + 'playerCover');
         newSongTitle.value = '';
         newSongSub.value = '';
         newSongUrl.value = '';
+        pendingSongFileData = null;
+        newSongFile.value = '';
+        newSongFileName.textContent = '';
         modalTitleElem.innerText = "添加自定义歌曲";
         confirmAddSongBtn.innerText = "添加播放";
         showModal(addSongModal);
@@ -2726,10 +2759,12 @@ const savedCover = safeGetItem(APP_PREFIX + 'playerCover');
     confirmAddSongBtn.addEventListener('click', () => {
         const title = newSongTitle.value.trim();
         const sub = newSongSub.value.trim();
-        const url = newSongUrl.value.trim();
+        const typedUrl = newSongUrl.value.trim();
+        const previousSong = editModeIndex >= 0 ? songs[editModeIndex] : null;
+        const url = pendingSongFileData || typedUrl || (previousSong && previousSong.url) || '';
 
         if (!title || !url) {
-            showNotification('歌名和链接不能为空', 'error');
+            showNotification('请填写歌名，并粘贴链接或上传本地音频', 'error');
             return;
         }
 
@@ -2737,7 +2772,8 @@ const savedCover = safeGetItem(APP_PREFIX + 'playerCover');
             title,
             sub: sub || '未知艺术家',
             url,
-            isCustom: true
+            isCustom: true,
+            isLocalFile: !!pendingSongFileData || (!!previousSong && previousSong.isLocalFile && !typedUrl)
         };
 
         if (editModeIndex >= 0) {
@@ -2754,6 +2790,9 @@ const savedCover = safeGetItem(APP_PREFIX + 'playerCover');
         newSongTitle.value = '';
         newSongSub.value = '';
         newSongUrl.value = '';
+        pendingSongFileData = null;
+        newSongFile.value = '';
+        newSongFileName.textContent = '';
         hideModal(addSongModal);
     });
 

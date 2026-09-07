@@ -46,6 +46,15 @@
         +     '</div>'
         +   '</div>'
 
+        +   '<div class="dm-section-label"><i class="fas fa-cloud"></i> 跨设备</div>'
+        +   '<div class="dm-row-card">'
+        +     '<div class="dm-row-item" id="open-cloud-sync-row" style="cursor:pointer">'
+        +       '<div class="dm-row-icon blue"><i class="fas fa-cloud-arrow-up"></i></div>'
+        +       '<div class="dm-row-info"><div class="dm-row-title">Supabase 同步</div><div class="dm-row-desc" id="cloud-sync-inline-status">尚未连接</div></div>'
+        +       '<button class="dm-nav-btn" aria-label="打开跨设备同步"><i class="fas fa-chevron-right"></i></button>'
+        +     '</div>'
+        +   '</div>'
+
         +   '<div style="display:none">'
         +     '<button id="export-all-settings"></button>'
         +     '<button id="import-all-settings"></button>'
@@ -194,7 +203,17 @@
                 ? 'linear-gradient(90deg,#FF9F0A,#E07000)'
                 : 'linear-gradient(90deg,var(--accent-color),rgba(var(--accent-color-rgb),0.6))';
         }
-        if (g('dm-storage-total')) g('dm-storage-total').textContent = fmt(total) + ' / ~5 MB';
+        if (g('dm-storage-total')) g('dm-storage-total').textContent = fmt(total);
+        if (navigator.storage && navigator.storage.estimate) {
+            navigator.storage.estimate().then(function (estimate) {
+                var used = Number(estimate.usage || total);
+                var quota = Number(estimate.quota || 0);
+                if (g('dm-storage-total')) {
+                    g('dm-storage-total').textContent = quota ? fmt(used) + ' / ' + fmt(quota) : fmt(used);
+                }
+                if (bar && quota) bar.style.width = Math.min(100, used / quota * 100).toFixed(1) + '%';
+            }).catch(function() {});
+        }
         if (g('dm-stat-msgs'))     g('dm-stat-msgs').textContent     = fmt(msgs);
         if (g('dm-stat-settings')) g('dm-stat-settings').textContent = fmt(cfg);
         if (g('dm-stat-media'))    g('dm-stat-media').textContent    = fmt(media);
@@ -278,6 +297,11 @@
 
         var tileChatBackup = mc.querySelector('#dm-tile-chat-backup');
         if (tileChatBackup) tileChatBackup.addEventListener('click', function () { openDrawer('dm-drawer-chat'); });
+
+        var cloudSyncRow = mc.querySelector('#open-cloud-sync-row');
+        if (cloudSyncRow) cloudSyncRow.addEventListener('click', function () {
+            if (window.MilkCloudSync) window.MilkCloudSync.open();
+        });
 
         var fullDrawer = document.getElementById('dm-drawer-full');
         if (fullDrawer) {

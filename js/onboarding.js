@@ -574,8 +574,9 @@ async function createNewSession(switchToIt = true) {
     await localforage.setItem(`${APP_PREFIX}sessionList`, sessionList);
 
     if (switchToIt) {
-        window.location.hash = newId;
-        window.location.reload();
+        if (typeof window.switchSessionInPlace === 'function') {
+            await window.switchSessionInPlace(newId);
+        }
     }
     
     return newId;
@@ -905,5 +906,4 @@ function setupTutorialListeners() {
         });
     }
 }
-
 
