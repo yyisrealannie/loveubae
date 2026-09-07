@@ -10848,6 +10848,60 @@
     display: none !important;
 }
 
+/* 通知隐私与自定义应用 Logo */
+.dm-inline-select {
+    max-width: 132px;
+    padding: 8px 26px 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--primary-bg);
+    color: var(--text-primary);
+    font: 600 12px/1.2 var(--font-family);
+    outline: none;
+}
+
+.dm-inline-select:focus {
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(var(--accent-color-rgb), 0.12);
+}
+
+.dm-logo-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.dm-logo-preview {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 9px;
+    border: 1px solid var(--border-color);
+    background: var(--primary-bg);
+    color: var(--accent-color);
+}
+
+.dm-logo-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+@media (max-width: 430px) {
+    .dm-inline-select {
+        max-width: 116px;
+        font-size: 11px;
+    }
+
+    .dm-logo-actions .dm-nav-btn {
+        width: 30px;
+        height: 30px;
+    }
+}
+
 .rl-group-disabled {
     border: 1.5px solid rgba(239, 68, 68, .55) !important;
     border-radius: 14px;

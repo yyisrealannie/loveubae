@@ -69,6 +69,20 @@
         +       '<div class="dm-row-info"><div class="dm-row-title">后台消息推送</div><div class="dm-row-desc" id="notif-status-text">收到新消息时弹出提醒</div></div>'
         +       '<label class="dm-toggle-pill"><input type="checkbox" id="notif-permission-toggle" onchange="handleNotifToggle(this)"><span class="dm-toggle-slider"></span></label>'
         +     '</div>'
+        +     '<div class="dm-row-item">'
+        +       '<div class="dm-row-icon blue"><i class="fas fa-eye"></i></div>'
+        +       '<div class="dm-row-info"><div class="dm-row-title">通知显示内容</div><div class="dm-row-desc" id="notif-privacy-desc">显示姓名和消息内容</div></div>'
+        +       '<select class="dm-inline-select" id="notif-privacy-mode" aria-label="通知显示内容">'
+        +         '<option value="full">姓名＋内容</option>'
+        +         '<option value="generic">仅提示新消息</option>'
+        +         '<option value="off">完全不显示</option>'
+        +       '</select>'
+        +     '</div>'
+        +     '<div class="dm-row-item">'
+        +       '<div class="dm-row-icon violet"><i class="fas fa-icons"></i></div>'
+        +       '<div class="dm-row-info"><div class="dm-row-title">站内 Logo</div><div class="dm-row-desc">用于页签、通知和应用预览</div></div>'
+        +       '<div class="dm-logo-actions"><span class="dm-logo-preview" id="dm-logo-preview"><i class="fas fa-heart"></i></span><button class="dm-nav-btn" id="upload-app-logo" title="上传 Logo"><i class="fas fa-upload"></i></button><button class="dm-nav-btn" id="reset-app-logo" title="恢复默认"><i class="fas fa-rotate-left"></i></button><input type="file" id="app-logo-input" accept="image/png,image/jpeg,image/webp" hidden></div>'
+        +     '</div>'
         +     '<div class="dm-row-item" id="replay-tutorial-btn-row" style="cursor:pointer">'
         +       '<div class="dm-row-icon slate"><i class="fas fa-compass"></i></div>'
         +       '<div class="dm-row-info"><div class="dm-row-title">重放新手引导</div><div class="dm-row-desc">重新播放功能介绍教程</div></div>'
@@ -262,6 +276,10 @@
         if (n) n.checked = localStorage.getItem('notifEnabled') === '1'
                         && 'Notification' in window
                         && Notification.permission === 'granted';
+        var mode = document.getElementById('notif-privacy-mode');
+        if (mode) mode.value = localStorage.getItem('notifPrivacyMode') || 'full';
+        if (typeof window._refreshNotifPrivacyDescription === 'function') window._refreshNotifPrivacyDescription();
+        if (typeof window._applyCustomAppLogo === 'function') window._applyCustomAppLogo(localStorage.getItem('customAppLogo') || '');
     }
 
     function openDrawer(drawerId) {
@@ -301,6 +319,53 @@
         var cloudSyncRow = mc.querySelector('#open-cloud-sync-row');
         if (cloudSyncRow) cloudSyncRow.addEventListener('click', function () {
             if (window.MilkCloudSync) window.MilkCloudSync.open();
+        });
+
+        var privacyMode = mc.querySelector('#notif-privacy-mode');
+        if (privacyMode) privacyMode.addEventListener('change', function () {
+            localStorage.setItem('notifPrivacyMode', privacyMode.value);
+            if (typeof window._refreshNotifPrivacyDescription === 'function') window._refreshNotifPrivacyDescription();
+            if (typeof showNotification === 'function') showNotification('通知显示方式已更新', 'success', 1800);
+        });
+
+        var logoInput = mc.querySelector('#app-logo-input');
+        var logoUpload = mc.querySelector('#upload-app-logo');
+        var logoReset = mc.querySelector('#reset-app-logo');
+        if (logoUpload && logoInput) logoUpload.addEventListener('click', function () { logoInput.click(); });
+        if (logoInput) logoInput.addEventListener('change', function (event) {
+            var file = event.target.files && event.target.files[0];
+            if (!file) return;
+            if (!/^image\/(png|jpeg|webp)$/i.test(file.type) || file.size > 2 * 1024 * 1024) {
+                if (typeof showNotification === 'function') showNotification('请选择不超过 2MB 的 PNG、JPG 或 WebP 图片', 'error', 3500);
+                logoInput.value = '';
+                return;
+            }
+            var finish = function (dataUrl) {
+                try {
+                    localStorage.setItem('customAppLogo', dataUrl);
+                    if (typeof window._applyCustomAppLogo === 'function') window._applyCustomAppLogo(dataUrl);
+                    if (typeof showNotification === 'function') showNotification('站内 Logo 已更新', 'success', 2000);
+                } catch (e) {
+                    if (typeof showNotification === 'function') showNotification('Logo 保存失败，图片可能过大', 'error', 3500);
+                }
+                logoInput.value = '';
+            };
+            if (typeof cropImageToSquare === 'function') {
+                cropImageToSquare(file, 256).then(finish).catch(function () {
+                    if (typeof showNotification === 'function') showNotification('Logo 处理失败', 'error');
+                    logoInput.value = '';
+                });
+            } else {
+                var reader = new FileReader();
+                reader.onload = function () { finish(reader.result); };
+                reader.onerror = function () { if (typeof showNotification === 'function') showNotification('Logo 读取失败', 'error'); };
+                reader.readAsDataURL(file);
+            }
+        });
+        if (logoReset) logoReset.addEventListener('click', function () {
+            localStorage.removeItem('customAppLogo');
+            if (typeof window._applyCustomAppLogo === 'function') window._applyCustomAppLogo('');
+            if (typeof showNotification === 'function') showNotification('已恢复默认 Logo', 'success', 1800);
         });
 
         var fullDrawer = document.getElementById('dm-drawer-full');
@@ -556,15 +621,44 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+window._refreshNotifPrivacyDescription = function() {
+    var mode = localStorage.getItem('notifPrivacyMode') || 'full';
+    var desc = document.getElementById('notif-privacy-desc');
+    if (!desc) return;
+    if (mode === 'generic') desc.textContent = '仅显示“您收到了一条新消息”';
+    else if (mode === 'off') desc.textContent = '不显示系统消息通知';
+    else desc.textContent = '显示对方姓名和消息内容';
+};
+
+window._applyCustomAppLogo = function(src) {
+    var links = document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]');
+    links.forEach(function(link) {
+        if (!link.dataset.defaultHref) link.dataset.defaultHref = link.getAttribute('href') || '';
+        link.setAttribute('href', src || link.dataset.defaultHref);
+    });
+    var preview = document.getElementById('dm-logo-preview');
+    if (preview) {
+        preview.innerHTML = src ? '<img src="' + src.replace(/"/g, '&quot;') + '" alt="自定义 Logo">' : '<i class="fas fa-heart"></i>';
+    }
+};
+
+window._getCustomAppLogo = function() {
+    return localStorage.getItem('customAppLogo') || new URL('icons/icon-192.png', window.location.href).href;
+};
+
 window._sendPartnerNotification = function(title, body) {
     try {
         if (localStorage.getItem('notifEnabled') !== '1') return;
+        var privacyMode = localStorage.getItem('notifPrivacyMode') || 'full';
+        if (privacyMode === 'off') return;
         if (!('Notification' in window)) return;
         if (Notification.permission !== 'granted') return;
         if (!document.hidden) return;
-        new Notification(title || '传讯', {
-            body: body || '对方发来了消息',
-            icon: (document.querySelector('#partner-avatar img') || {}).src,
+        var isGeneric = privacyMode === 'generic';
+        var partnerIcon = (document.querySelector('#partner-avatar img') || {}).src;
+        new Notification(isGeneric ? '传讯' : (title || '传讯'), {
+            body: isGeneric ? '您收到了一条新消息' : (body || '对方发来了消息'),
+            icon: isGeneric ? window._getCustomAppLogo() : (partnerIcon || window._getCustomAppLogo()),
             tag: 'partner-msg',
             renotify: true
         });
@@ -605,6 +699,7 @@ window.handleNotifToggle = function(checkbox) {
 };
 
 document.addEventListener('DOMContentLoaded', function() {
+    window._applyCustomAppLogo(localStorage.getItem('customAppLogo') || '');
     var toggle   = document.getElementById('notif-permission-toggle');
     var statusEl = document.getElementById('notif-status-text');
     if (!toggle) return;
