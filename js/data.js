@@ -86,7 +86,7 @@
         +     '<div class="dm-row-item">'
         +       '<div class="dm-row-icon violet"><i class="fas fa-icons"></i></div>'
         +       '<div class="dm-row-info"><div class="dm-row-title">站内 Logo</div><div class="dm-row-desc">用于页签、通知和应用预览</div></div>'
-        +       '<div class="dm-logo-actions"><span class="dm-logo-preview" id="dm-logo-preview"><i class="fas fa-heart"></i></span><button class="dm-nav-btn" id="upload-app-logo" title="上传 Logo"><i class="fas fa-upload"></i></button><button class="dm-nav-btn" id="reset-app-logo" title="恢复默认"><i class="fas fa-rotate-left"></i></button><input type="file" id="app-logo-input" accept="image/png,image/jpeg,image/webp" hidden></div>'
+        +       '<div class="dm-logo-actions"><span class="dm-logo-preview" id="dm-logo-preview"><img src="icons/icon-192.png" alt="loveubae Logo"></span><button class="dm-nav-btn" id="upload-app-logo" title="上传 Logo"><i class="fas fa-upload"></i></button><button class="dm-nav-btn" id="reset-app-logo" title="恢复默认"><i class="fas fa-rotate-left"></i></button><input type="file" id="app-logo-input" accept="image/png,image/jpeg,image/webp" hidden></div>'
         +     '</div>'
         +     '<div class="dm-row-item" id="replay-tutorial-btn-row" style="cursor:pointer">'
         +       '<div class="dm-row-icon slate"><i class="fas fa-compass"></i></div>'
@@ -650,7 +650,7 @@ window._applyCustomAppLogo = function(src) {
     });
     var preview = document.getElementById('dm-logo-preview');
     if (preview) {
-        preview.innerHTML = src ? '<img src="' + src.replace(/"/g, '&quot;') + '" alt="自定义 Logo">' : '<i class="fas fa-heart"></i>';
+        preview.innerHTML = src ? '<img src="' + src.replace(/"/g, '&quot;') + '" alt="自定义 Logo">' : '<img src="icons/icon-192.png" alt="loveubae Logo">';
     }
 };
 
