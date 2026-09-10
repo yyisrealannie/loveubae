@@ -120,7 +120,7 @@ function deduplicateSimilarContentArray(arr, baseSystemArray = [], threshold = 0
                     const blob = new Blob([dataString], { type: 'application/json' });
                     const file = new File([blob], fileName, { type: 'application/json' });
                     if (navigator.canShare({ files: [file] })) {
-                        navigator.share({ files: [file], title: '传讯数据备份', text: '请选择"保存到文件"' })
+                        navigator.share({ files: [file], title: 'loveubae 数据备份', text: '请选择"保存到文件"' })
                             .catch(() => downloadFileFallback(blob, fileName));
                         return;
                     }

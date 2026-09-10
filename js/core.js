@@ -768,7 +768,8 @@ if (customIntros && customIntros.length > 0) {
         scrambleText(subEl, line2, 2000);
     }, 600);
 } else {
-    document.getElementById('welcome-title-glitch').textContent = "传讯";
+    document.getElementById('welcome-title-glitch').textContent = "loveubae";
+    document.getElementById('welcome-title-glitch').dataset.text = "loveubae";
     document.getElementById('welcome-subtitle-scramble').textContent = "请在设置中添加开场动画";
 }
 
@@ -1991,7 +1992,7 @@ function showModal(modalElement, focusElement = null) {
                         const blob = new Blob([dataStr], { type: 'application/json;charset=utf-8' });
                         const file = new File([blob], fileName, { type: 'application/json' });
                         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                            navigator.share({ files: [file], title: '传讯数据导出', text: `导出日期：${new Date().toLocaleDateString()}` })
+                            navigator.share({ files: [file], title: 'loveubae 数据导出', text: `导出日期：${new Date().toLocaleDateString()}` })
                                 .catch(() => fallbackExport(dataStr, fileName));
                             return;
                         }

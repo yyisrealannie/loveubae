@@ -10,14 +10,14 @@
     <meta name="description" content="一款可自定义、可离线使用并支持跨设备同步的私人字卡聊天空间。">
     <link rel="manifest" href="manifest.webmanifest">
 
-    <title>传讯</title>
+    <title>loveubae</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
-    <link rel="apple-touch-icon" href="icons/icon-192.png">
-    <meta name="apple-mobile-web-app-title" content="传讯">
+    <link rel="icon" type="image/png" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-title" content="loveubae">
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -164,7 +164,7 @@
             </div>
 
             <div class="text-tech-container">
-                <div class="welcome-title-glitch" id="welcome-title-glitch" data-text="传讯">
+                <div class="welcome-title-glitch" id="welcome-title-glitch" data-text="loveubae">
                     加载失败
                 </div>
                 <div class="welcome-subtitle-scramble" id="welcome-subtitle-scramble">
@@ -667,7 +667,7 @@
             <i class="fas fa-images" style="font-size: 16px;"></i>
         </div>
         <div>
-            <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); letter-spacing: 0.5px;">传讯专属画廊</div>
+            <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); letter-spacing: 0.5px;">loveubae 专属画廊</div>
             <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">获取气泡等素材</div>
         </div>
     </div>
@@ -1290,14 +1290,14 @@
                             </div>
                         </div>
                     </div>
-                    <p class="cs-group-label" style="margin-top:16px;">页面保活</p>
+                    <p class="cs-group-label" style="margin-top:16px;">亮屏保护</p>
                     <div class="cs-card">
                         <div class="setting-pill-row" id="keepalive-audio-toggle" onclick="window._toggleKeepaliveAudio && window._toggleKeepaliveAudio()">
                             <span class="setting-pill-icon" style="position:relative;">
                                 <i class="fas fa-broadcast-tower"></i>
                                 <span id="keepalive-dot" class="keepalive-dot"></span>
                             </span>
-                            <span class="setting-pill-label">活跃保护 <span style="font-size:11px;color:var(--text-secondary);font-weight:400;" id="keepalive-audio-desc">保持屏幕与页面活跃，不占用音频通道</span></span>
+                            <span class="setting-pill-label">保持屏幕常亮 <span style="font-size:11px;color:var(--text-secondary);font-weight:400;" id="keepalive-audio-desc">仅页面在前台时有效，不占用音频</span></span>
                             <div class="setting-pill-switch" id="keepalive-audio-switch"><div class="setting-pill-knob"></div></div>
                         </div>
                         <div id="keepalive-bar-row" style="display:none;align-items:center;gap:3px;padding:8px 14px 10px;border-top:1px solid var(--border-color);">
@@ -2242,6 +2242,7 @@
     <script src="js/features.js"></script> 
     <script src="js/data.js"></script>
     <script src="js/cloud-sync.js"></script>
+    <script src="js/sleep-push.js"></script>
     <script src="js/onboarding.js"></script> 
     <script src="js/listeners.js"></script>
     <script src="js/app.js"></script>

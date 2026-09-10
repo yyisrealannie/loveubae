@@ -1,4 +1,4 @@
-# 传讯 · 私人字卡聊天空间
+# loveubae · 私人字卡聊天空间
 
 这是基于 Milk 字卡开源版整理的个人定制版本。它是纯静态网站，可以部署到 GitHub Pages，也可以继续交给 Codex 修改。
 
@@ -43,7 +43,8 @@ Project URL 和 publishable key 属于可公开的前端配置，已写入个人
 - 新词条 90% 相似度检查、批量近似去重、醒目的禁用状态。
 - 音乐支持链接和本地文件；显示浏览器实际存储占用。
 - 词云自定义关键词黑名单。
-- 使用 Wake Lock 做无声页面保活，不抢占其他音乐软件音频通道。
+- 使用 Wake Lock 做前台常亮，不抢占其他音乐软件音频通道。
+- iPhone 主屏幕版可开启 10 小时 Web Push；锁屏和切换 App 后由 Supabase 后台发送，不依赖网页继续运行。
 - 后台通知支持“姓名＋内容 / 仅提示新消息 / 完全不显示”三级隐私设置。
 - 可在数据管理中上传站内 Logo，用于页签、通知图标和应用预览。
 - Supabase 跨设备同步与 PWA 安装。
@@ -53,6 +54,8 @@ Project URL 和 publishable key 属于可公开的前端配置，已写入个人
 - `index.html`：主页面
 - `css/styles.css`：全部样式
 - `js/`：应用逻辑与功能模块
-- `supabase/schema.sql`：云同步数据表与权限策略
+- `supabase/schema.sql`：云同步与推送数据表、权限策略
+- `supabase/functions/sleep-push/`：睡眠推送 Edge Function
+- `supabase/schedule-sleep-push.sql`：每 5 分钟检查推送的定时任务模板
 - `manifest.webmanifest`、`service-worker.js`：PWA 配置
 - `.github/workflows/deploy-pages.yml`：GitHub Pages 自动部署

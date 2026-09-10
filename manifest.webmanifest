@@ -1,6 +1,7 @@
 {
-  "name": "传讯 · 私人字卡聊天空间",
-  "short_name": "传讯",
+  "id": "./",
+  "name": "loveubae",
+  "short_name": "loveubae",
   "description": "可自定义、可离线使用并支持跨设备同步的私人字卡聊天空间。",
   "lang": "zh-CN",
   "start_url": "./",
@@ -10,7 +11,6 @@
   "theme_color": "#111111",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

@@ -79,6 +79,11 @@
         +       '</select>'
         +     '</div>'
         +     '<div class="dm-row-item">'
+        +       '<div class="dm-row-icon teal"><i class="fas fa-moon"></i></div>'
+        +       '<div class="dm-row-info"><div class="dm-row-title">睡眠推送（10小时）</div><div class="dm-row-desc" id="sleep-push-status">安装到 iPhone 主屏幕后可开启</div></div>'
+        +       '<button class="dm-nav-btn dm-push-btn" id="sleep-push-enable" type="button">开启</button>'
+        +     '</div>'
+        +     '<div class="dm-row-item">'
         +       '<div class="dm-row-icon violet"><i class="fas fa-icons"></i></div>'
         +       '<div class="dm-row-info"><div class="dm-row-title">站内 Logo</div><div class="dm-row-desc">用于页签、通知和应用预览</div></div>'
         +       '<div class="dm-logo-actions"><span class="dm-logo-preview" id="dm-logo-preview"><i class="fas fa-heart"></i></span><button class="dm-nav-btn" id="upload-app-logo" title="上传 Logo"><i class="fas fa-upload"></i></button><button class="dm-nav-btn" id="reset-app-logo" title="恢复默认"><i class="fas fa-rotate-left"></i></button><input type="file" id="app-logo-input" accept="image/png,image/jpeg,image/webp" hidden></div>'
@@ -280,6 +285,7 @@
         if (mode) mode.value = localStorage.getItem('notifPrivacyMode') || 'full';
         if (typeof window._refreshNotifPrivacyDescription === 'function') window._refreshNotifPrivacyDescription();
         if (typeof window._applyCustomAppLogo === 'function') window._applyCustomAppLogo(localStorage.getItem('customAppLogo') || '');
+        if (window.SleepPush && typeof window.SleepPush.refreshStatus === 'function') window.SleepPush.refreshStatus();
     }
 
     function openDrawer(drawerId) {
@@ -325,7 +331,13 @@
         if (privacyMode) privacyMode.addEventListener('change', function () {
             localStorage.setItem('notifPrivacyMode', privacyMode.value);
             if (typeof window._refreshNotifPrivacyDescription === 'function') window._refreshNotifPrivacyDescription();
+            if (window.SleepPush && typeof window.SleepPush.syncProfile === 'function') window.SleepPush.syncProfile({ quiet: true });
             if (typeof showNotification === 'function') showNotification('通知显示方式已更新', 'success', 1800);
+        });
+
+        var sleepPushButton = mc.querySelector('#sleep-push-enable');
+        if (sleepPushButton) sleepPushButton.addEventListener('click', function () {
+            if (window.SleepPush) window.SleepPush.enableFor10Hours();
         });
 
         var logoInput = mc.querySelector('#app-logo-input');
@@ -656,7 +668,7 @@ window._sendPartnerNotification = function(title, body) {
         if (!document.hidden) return;
         var isGeneric = privacyMode === 'generic';
         var partnerIcon = (document.querySelector('#partner-avatar img') || {}).src;
-        new Notification(isGeneric ? '传讯' : (title || '传讯'), {
+        new Notification(isGeneric ? 'loveubae' : (title || 'loveubae'), {
             body: isGeneric ? '您收到了一条新消息' : (body || '对方发来了消息'),
             icon: isGeneric ? window._getCustomAppLogo() : (partnerIcon || window._getCustomAppLogo()),
             tag: 'partner-msg',
@@ -677,7 +689,7 @@ window.handleNotifToggle = function(checkbox) {
             if (perm === 'granted') {
                 if (statusEl) statusEl.textContent = '✅ 已开启 — 当页面在后台时，收到消息会弹出系统通知';
                 localStorage.setItem('notifEnabled', '1');
-                try { new Notification('传讯通知已开启 ✨', { body: '你现在可以在后台收到消息提醒了', tag: 'notif-test' }); } catch(e) {}
+                try { new Notification('loveubae 通知已开启 ✨', { body: '页面在后台时也会显示提醒', tag: 'notif-test' }); } catch(e) {}
             } else if (perm === 'denied') {
                 checkbox.checked = false;
                 if (statusEl) statusEl.textContent = '❌ 权限被拒绝，请自行搜索如何开启';

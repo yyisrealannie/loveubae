@@ -380,7 +380,7 @@
                         if (navigator.canShare && navigator.canShare({ files: [shareFile] })) {
                             await navigator.share({
                                 files: [shareFile],
-                                title: '传讯全量备份',
+                                title: 'loveubae 全量备份',
                                 text: 'ZIP 备份：' + new Date().toLocaleDateString()
                             });
                             if (typeof showNotification === 'function') showNotification('备份导出成功', 'success');
@@ -410,7 +410,7 @@
             try {
                 var f = new File([blob], fileName, { type: 'application/json' });
                 if (navigator.canShare && navigator.canShare({ files: [f] })) {
-                    await navigator.share({ files: [f], title: '传讯全量备份', text: '备份日期：' + new Date().toLocaleDateString() });
+                    await navigator.share({ files: [f], title: 'loveubae 全量备份', text: '备份日期：' + new Date().toLocaleDateString() });
                     if (typeof showNotification === 'function') showNotification('备份导出成功', 'success');
                     return;
                 }

@@ -201,9 +201,9 @@
             dot.className = 'keepalive-dot' + (playing ? ' alive' : '');
         }
         if (desc) {
-            if (!_get())      desc.textContent = '保持屏幕与页面活跃，不占用音频通道';
-            else if (playing) desc.textContent = '运行中 · 不影响其他音乐软件';
-            else              desc.textContent = '切回页面后会自动恢复';
+            if (!_get())      desc.textContent = '仅页面在前台时有效，不占用音频';
+            else if (playing) desc.textContent = '前台常亮中 · 锁屏后由睡眠推送接管';
+            else              desc.textContent = '已暂停 · 切回页面后自动恢复';
         }
         if (row)  row.style.display = _get() ? 'flex' : 'none';
         var bars = document.querySelectorAll('.keepalive-wave-bar');
@@ -238,10 +238,10 @@
         localStorage.setItem(KEY, String(next));
         if (next) {
             _start();
-            if (typeof showNotification === 'function') showNotification('保活音频已开启 🎵', 'success', 2000);
+            if (typeof showNotification === 'function') showNotification('前台常亮已开启', 'success', 2000);
         } else {
             _stop();
-            if (typeof showNotification === 'function') showNotification('保活音频已关闭', 'info', 1500);
+            if (typeof showNotification === 'function') showNotification('前台常亮已关闭', 'info', 1500);
         }
         _setUI(next && !!_wakeLock);
     };

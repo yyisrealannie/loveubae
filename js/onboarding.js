@@ -308,7 +308,7 @@ let isTourActive = false;
 
 const tourSteps = [
     {
-        title: "✨ 欢迎来到「传讯」",
+        title: "✨ 欢迎来到「loveubae」",
         content: "这里是你们专属的私密空间。<br><br>这个教程共 <b>20 步</b>，带你从头到尾认识每一个功能，建议完整看完哦🥺<br><br>点击「下一步」开始吧！",
         position: 'center'
     },
@@ -442,7 +442,7 @@ const tourSteps = [
     },
     {
         title: "🎉 你已掌握所有功能！",
-        content: "恭喜你完成了新手引导！现在你已经了解了「传讯」的全部功能。<br><br>希望你们在这里收获满满的爱与幸福 🥺💕",
+        content: "恭喜你完成了新手引导！现在你已经了解了「loveubae」的全部功能。<br><br>希望你们在这里收获满满的爱与幸福 🥺💕",
         position: 'center'
     }
 ];
@@ -906,4 +906,3 @@ function setupTutorialListeners() {
         });
     }
 }
-

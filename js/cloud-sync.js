@@ -240,7 +240,10 @@
             await refreshStatus();
         },
         upload,
-        download
+        download,
+        getClient,
+        currentUser,
+        refreshStatus
     };
 
     document.addEventListener('DOMContentLoaded', function () {
