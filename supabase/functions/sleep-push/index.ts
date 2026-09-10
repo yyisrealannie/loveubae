@@ -1,5 +1,5 @@
-import { createClient } from 'supabase'
-import webpush from 'web-push'
+import { createClient } from 'npm:@supabase/supabase-js@2'
+import webpush from 'npm:web-push@3.6.7'
 
 const corsHeaders = {
   'content-type': 'application/json; charset=utf-8',
