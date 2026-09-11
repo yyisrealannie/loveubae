@@ -80,8 +80,16 @@
         +     '</div>'
         +     '<div class="dm-row-item">'
         +       '<div class="dm-row-icon teal"><i class="fas fa-moon"></i></div>'
-        +       '<div class="dm-row-info"><div class="dm-row-title">睡眠推送（10小时）</div><div class="dm-row-desc" id="sleep-push-status">安装到 iPhone 主屏幕后可开启</div></div>'
+        +       '<div class="dm-row-info"><div class="dm-row-title">锁屏／睡眠推送</div><div class="dm-row-desc" id="sleep-push-status">安装到 iPhone 主屏幕后可开启</div></div>'
         +       '<button class="dm-nav-btn dm-push-btn" id="sleep-push-enable" type="button">开启</button>'
+        +     '</div>'
+        +     '<div class="dm-row-item dm-push-duration-row">'
+        +       '<div class="dm-row-icon blue"><i class="fas fa-hourglass-half"></i></div>'
+        +       '<div class="dm-row-info"><div class="dm-row-title">持续时长</div><div class="dm-row-desc">到时自动停止；再次开启会重新计时</div><div class="dm-push-range"><input type="range" min="1" max="24" step="1" value="10" id="sleep-push-hours"><span id="sleep-push-hours-value">10小时</span></div></div>'
+        +     '</div>'
+        +     '<div class="dm-row-item">'
+        +       '<div class="dm-row-icon amber"><i class="fas fa-clock"></i></div>'
+        +       '<div class="dm-row-info"><div class="dm-row-title">消息发送间隔</div><div class="dm-row-desc" id="sleep-push-frequency">跟随“聊天设置 → 对话节奏 → 主动发送”的间隔</div></div>'
         +     '</div>'
         +     '<div class="dm-row-item">'
         +       '<div class="dm-row-icon violet"><i class="fas fa-icons"></i></div>'
@@ -337,7 +345,11 @@
 
         var sleepPushButton = mc.querySelector('#sleep-push-enable');
         if (sleepPushButton) sleepPushButton.addEventListener('click', function () {
-            if (window.SleepPush) window.SleepPush.enableFor10Hours();
+            if (window.SleepPush) window.SleepPush.enable();
+        });
+        var sleepPushHours = mc.querySelector('#sleep-push-hours');
+        if (sleepPushHours) sleepPushHours.addEventListener('input', function () {
+            if (window.SleepPush) window.SleepPush.setDuration(sleepPushHours.value);
         });
 
         var logoInput = mc.querySelector('#app-logo-input');

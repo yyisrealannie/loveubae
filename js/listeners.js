@@ -1305,6 +1305,9 @@ autoSendSlider.addEventListener('input', (e) => {
 autoSendSlider.addEventListener('change', () => {
     manageAutoSendTimer(); 
     throttledSaveData();
+    if (window.SleepPush && typeof window.SleepPush.syncProfile === 'function') {
+        window.SleepPush.syncProfile({ quiet: true });
+    }
 });
 
             const resetBgBtn = document.getElementById('reset-default-bg');

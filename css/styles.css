@@ -10906,6 +10906,27 @@
     cursor: not-allowed;
 }
 
+.dm-push-range {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 9px;
+}
+
+.dm-push-range input[type="range"] {
+    min-width: 0;
+    flex: 1;
+    accent-color: var(--accent-color);
+}
+
+.dm-push-range span {
+    min-width: 48px;
+    color: var(--accent-color);
+    font-size: 12px;
+    font-weight: 700;
+    text-align: right;
+}
+
 @media (max-width: 430px) {
     .dm-inline-select {
         max-width: 116px;

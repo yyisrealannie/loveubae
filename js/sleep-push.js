@@ -2,8 +2,8 @@
     'use strict';
 
     const VAPID_PUBLIC_KEY = 'BJa9hBL-cvAJ-k-c3Am7WyCI9sPTjYAuhTsoDXcBsxV4nv3QAEs06lpuqgbNJlpTHbIEJGi5eUfuylEby4zDkxU';
-    const ACTIVE_HOURS = 10;
     const ACTIVE_UNTIL_KEY = 'sleepPushActiveUntil';
+    const DURATION_KEY = 'sleepPushDurationHours';
 
     function isStandalone() {
         return window.navigator.standalone === true
@@ -19,8 +19,30 @@
     function statusElements() {
         return {
             text: document.getElementById('sleep-push-status'),
-            button: document.getElementById('sleep-push-enable')
+            button: document.getElementById('sleep-push-enable'),
+            hours: document.getElementById('sleep-push-hours'),
+            hoursValue: document.getElementById('sleep-push-hours-value'),
+            frequency: document.getElementById('sleep-push-frequency')
         };
+    }
+
+    function selectedHours() {
+        const value = Number(localStorage.getItem(DURATION_KEY) || 10);
+        return Math.max(1, Math.min(24, Number.isFinite(value) ? value : 10));
+    }
+
+    function intervalMinutes() {
+        let value = 5;
+        try {
+            if (typeof settings !== 'undefined') value = Number(settings.autoSendInterval || 5);
+        } catch (e) {}
+        return Math.max(1, Math.min(120, Number.isFinite(value) ? Math.round(value) : 5));
+    }
+
+    function setDuration(value) {
+        const hours = Math.max(1, Math.min(24, Number(value) || 10));
+        localStorage.setItem(DURATION_KEY, String(hours));
+        refreshStatus();
     }
 
     function localExpiry() {
@@ -36,6 +58,10 @@
     async function refreshStatus() {
         const el = statusElements();
         if (!el.text || !el.button) return;
+        const hours = selectedHours();
+        if (el.hours) el.hours.value = String(hours);
+        if (el.hoursValue) el.hoursValue.textContent = hours + '小时';
+        if (el.frequency) el.frequency.textContent = '后台生成后立即推送 · 当前每 ' + intervalMinutes() + ' 分钟一条';
         const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
         const expiry = localExpiry();
         if (!supported) {
@@ -52,7 +78,7 @@
             el.button.disabled = true;
         } else if (expiry > Date.now()) {
             el.text.textContent = '已开启，持续到 ' + formatTime(expiry);
-            el.button.textContent = '续10小时';
+            el.button.textContent = '续' + hours + '小时';
             el.button.disabled = false;
         } else {
             el.text.textContent = '锁屏或切换 App 后仍可接收系统推送';
@@ -96,7 +122,7 @@
         return subscription;
     }
 
-    async function enableFor10Hours() {
+    async function enable() {
         try {
             if (!isStandalone()) throw new Error('请先用 Safari 把网站添加到主屏幕，并从桌面图标打开');
             const identity = await cloudIdentity();
@@ -108,8 +134,10 @@
 
             const subscription = await currentSubscription(true);
             const now = Date.now();
-            const activeUntil = new Date(now + ACTIVE_HOURS * 60 * 60 * 1000);
-            const nextPush = new Date(now + (20 + Math.random() * 25) * 60 * 1000);
+            const hours = selectedHours();
+            const interval = intervalMinutes();
+            const activeUntil = new Date(now + hours * 60 * 60 * 1000);
+            const nextPush = new Date(now + interval * 60 * 1000);
             const payload = {
                 user_id: identity.user.id,
                 endpoint: subscription.endpoint,
@@ -119,6 +147,7 @@
                 reply_pool: replyPool(),
                 active_until: activeUntil.toISOString(),
                 next_push_at: nextPush.toISOString(),
+                push_interval_minutes: interval,
                 updated_at: new Date().toISOString()
             };
             const result = await identity.client.from('milk_push_subscriptions')
@@ -128,7 +157,7 @@
             localStorage.setItem('notifEnabled', '1');
             await refreshStatus();
             if (typeof showNotification === 'function') {
-                showNotification('睡眠推送已开启 10 小时，可以锁屏睡觉了', 'success', 4200);
+                showNotification('睡眠推送已开启 ' + hours + ' 小时；消息生成后会立即推送', 'success', 4200);
             }
         } catch (error) {
             if (typeof showNotification === 'function') {
@@ -146,6 +175,7 @@
                 partner_name: (typeof settings !== 'undefined' && settings.partnerName) || '对方',
                 privacy_mode: localStorage.getItem('notifPrivacyMode') || 'full',
                 reply_pool: replyPool(),
+                push_interval_minutes: intervalMinutes(),
                 updated_at: new Date().toISOString()
             }).eq('user_id', identity.user.id).eq('endpoint', subscription.endpoint);
             if (result.error) throw result.error;
@@ -182,7 +212,7 @@
         } catch (e) {}
     }
 
-    window.SleepPush = { enableFor10Hours, refreshStatus, syncProfile, importPendingMessages };
+    window.SleepPush = { enable, setDuration, refreshStatus, syncProfile, importPendingMessages };
     document.addEventListener('DOMContentLoaded', function () {
         refreshStatus();
         setTimeout(importPendingMessages, 3500);

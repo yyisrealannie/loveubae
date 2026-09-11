@@ -21,7 +21,7 @@ where jobname = 'loveubae-sleep-push';
 
 select cron.schedule(
   'loveubae-sleep-push',
-  '*/5 * * * *',
+  '* * * * *',
   $$
   select net.http_post(
     url := (select decrypted_secret from vault.decrypted_secrets where name = 'loveubae_project_url') || '/functions/v1/sleep-push',

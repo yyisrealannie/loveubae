@@ -34,9 +34,13 @@ create table if not exists public.milk_push_subscriptions (
   reply_pool jsonb not null default '[]'::jsonb,
   active_until timestamptz not null,
   next_push_at timestamptz not null,
+  push_interval_minutes integer not null default 5 check (push_interval_minutes between 1 and 120),
   updated_at timestamptz not null default now(),
   primary key (user_id, endpoint)
 );
+
+alter table public.milk_push_subscriptions
+add column if not exists push_interval_minutes integer not null default 5;
 
 create table if not exists public.milk_push_messages (
   id uuid primary key default gen_random_uuid(),

@@ -19,10 +19,6 @@ function secretKey(): string {
   return values.default
 }
 
-function nextDelayMinutes(): number {
-  return 45 + Math.floor(Math.random() * 61)
-}
-
 Deno.serve(async (request) => {
   try {
     if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
@@ -51,7 +47,8 @@ Deno.serve(async (request) => {
     let sent = 0
     let removed = 0
     for (const row of due || []) {
-      const nextPushAt = new Date(Date.now() + nextDelayMinutes() * 60_000).toISOString()
+      const intervalMinutes = Math.max(1, Math.min(120, Number(row.push_interval_minutes) || 5))
+      const nextPushAt = new Date(Date.now() + intervalMinutes * 60_000).toISOString()
       const pool = Array.isArray(row.reply_pool) ? row.reply_pool.filter(Boolean) : []
       if (row.privacy_mode === 'off' || pool.length === 0) {
         await admin.from('milk_push_subscriptions').update({ next_push_at: nextPushAt })
