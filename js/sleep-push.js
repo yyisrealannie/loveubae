@@ -113,6 +113,16 @@
     async function currentSubscription(createIfMissing) {
         const registration = await navigator.serviceWorker.ready;
         let subscription = await registration.pushManager.getSubscription();
+        if (subscription && createIfMissing && subscription.options && subscription.options.applicationServerKey) {
+            const savedKey = new Uint8Array(subscription.options.applicationServerKey);
+            const currentKey = base64UrlToBytes(VAPID_PUBLIC_KEY);
+            const keyMatches = savedKey.length === currentKey.length
+                && savedKey.every((value, index) => value === currentKey[index]);
+            if (!keyMatches) {
+                await subscription.unsubscribe();
+                subscription = null;
+            }
+        }
         if (!subscription && createIfMissing) {
             subscription = await registration.pushManager.subscribe({
                 userVisibleOnly: true,
