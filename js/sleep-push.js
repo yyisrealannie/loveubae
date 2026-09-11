@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const VAPID_PUBLIC_KEY = 'BJa9hBL-cvAJ-k-c3Am7WyCI9sPTjYAuhTsoDXcBsxV4nv3QAEs06lpuqgbNJlpTHbIEJGi5eUfuylEby4zDkxU';
+    const VAPID_PUBLIC_KEY = 'BBpamRO3IQT5IUOCi3WpSi4J4RZP7WB1PBHC7QxqjXbjxYkiG7SZMg-tclwMWYgVwMjLY09Jal9aOzHTmsELXQU';
     const ACTIVE_UNTIL_KEY = 'sleepPushActiveUntil';
     const DURATION_KEY = 'sleepPushDurationHours';
 
