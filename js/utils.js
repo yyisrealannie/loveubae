@@ -426,8 +426,8 @@ function applyGlobalThemeCss(cssCode) {
 
 async function exportAllData() {
     try {
-        if (typeof ChatBackup !== 'undefined' && ChatBackup.buildBackupPayload && ChatBackup.serializeBackupV4) {
-            const payload = await ChatBackup.buildBackupPayload({
+        if (typeof ChatBackup !== 'undefined' && ChatBackup.exportBackupToFile) {
+            await ChatBackup.exportBackupToFile({
                 inclMsgs: true,
                 inclSet: true,
                 inclCustom: true,
@@ -436,12 +436,6 @@ async function exportAllData() {
                 inclDg: true,
                 inclStickers: true
             });
-            const jsonString = ChatBackup.serializeBackupV4(payload);
-            const dateStr = new Date().toISOString().slice(0, 10);
-            const fileName = `chatapp-backup-${dateStr}.json`;
-            const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
-            downloadFileFallback(blob, fileName);
-            if (typeof showNotification === 'function') showNotification('已导出 JSON 备份', 'success');
         } else {
             showNotification('备份模块或函数未加载，请刷新页面', 'error');
         }

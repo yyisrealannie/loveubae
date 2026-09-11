@@ -141,9 +141,25 @@ function generateEnvelopeReplyText() {
 
 window.maybeTriggerProactiveEnvelope = function(sourcePool) {
     const cooldownMs = 2 * 60 * 60 * 1000;
-    const key = getStorageKey('lastProactiveEnvelopeAt');
-    const lastAt = Number(localStorage.getItem(key) || 0);
-    if (Date.now() - lastAt < cooldownMs || Math.random() >= 0.08) return false;
+    const stateKey = getStorageKey('proactiveEnvelopeWeekState');
+    const now = Date.now();
+    const today = new Date(now);
+    const mondayOffset = (today.getDay() + 6) % 7;
+    const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - mondayOffset);
+    monday.setHours(0, 0, 0, 0);
+    const weekStart = monday.getTime();
+    let weekState = { weekStart: weekStart, count: 0, lastAt: 0 };
+    try {
+        const savedState = JSON.parse(localStorage.getItem(stateKey) || 'null');
+        if (savedState && Number(savedState.weekStart) === weekStart) {
+            weekState = {
+                weekStart: weekStart,
+                count: Math.max(0, Number(savedState.count) || 0),
+                lastAt: Number(savedState.lastAt) || 0
+            };
+        }
+    } catch (e) {}
+    if (weekState.count >= 2 || now - weekState.lastAt < cooldownMs || Math.random() >= 0.08) return false;
 
     const pool = Array.from(new Set((sourcePool || customReplies || [])
         .map(item => String(item || '').trim())
@@ -161,15 +177,17 @@ window.maybeTriggerProactiveEnvelope = function(sourcePool) {
     }
 
     const letter = {
-        id: 'proactive_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        id: 'proactive_' + now + '_' + Math.random().toString(36).slice(2, 6),
         content: pieces.join(' · '),
-        receivedTime: Date.now(),
-        timestamp: Date.now(),
+        receivedTime: now,
+        timestamp: now,
         isNew: true,
         proactive: true
     };
     envelopeData.inbox.push(letter);
-    localStorage.setItem(key, String(Date.now()));
+    weekState.count += 1;
+    weekState.lastAt = now;
+    localStorage.setItem(stateKey, JSON.stringify(weekState));
     saveEnvelopeData();
     showEnvelopeReplyPopup(letter);
     addMessage({

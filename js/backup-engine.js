@@ -333,6 +333,7 @@
 
     async function exportBackupToFile(flags) {
         if (typeof showNotification === 'function') showNotification('正在打包备份（ZIP：结构与媒体分离）…', 'info', 4000);
+        var isMobile = /Mobile|Android|iPhone|iPad/.test(navigator.userAgent);
         var payload = await buildBackupPayload(flags);
         var dateStr = new Date().toISOString().slice(0, 10);
         var fileNameZip = 'chatapp-backup-' + dateStr + '.zip';
@@ -342,6 +343,7 @@
                 var zip = new JSZip();
                 var store = payload.mediaStore || {};
                 var mediaIndex = {};
+                var processedMediaCount = 0;
                 for (var sid in store) {
                     if (!Object.prototype.hasOwnProperty.call(store, sid)) continue;
                     var url = store[sid];
@@ -354,6 +356,10 @@
                         var txtPath = path + '.txt';
                         zip.file(txtPath, String(url));
                         mediaIndex[sid] = { path: txtPath, mime: 'text/plain+dataurl' };
+                    }
+                    processedMediaCount += 1;
+                    if (processedMediaCount % 8 === 0) {
+                        await new Promise(function (resolve) { setTimeout(resolve, 0); });
                     }
                 }
                 var jsonBody = {
@@ -371,10 +377,11 @@
                 zip.file('backup.json', '\uFEFF' + JSON.stringify(jsonBody));
                 var zipBlob = await zip.generateAsync({
                     type: 'blob',
-                    compression: 'DEFLATE',
-                    compressionOptions: { level: 6 }
+                    streamFiles: true,
+                    compression: isMobile ? 'STORE' : 'DEFLATE',
+                    compressionOptions: isMobile ? undefined : { level: 3 }
                 });
-                if (navigator.share && /Mobile|Android|iPhone|iPad/.test(navigator.userAgent)) {
+                if (navigator.share && isMobile) {
                     try {
                         var shareFile = new File([zipBlob], fileNameZip, { type: 'application/zip' });
                         if (navigator.canShare && navigator.canShare({ files: [shareFile] })) {
@@ -394,7 +401,13 @@
                 }
                 return;
             } catch (zipErr) {
-                console.error('[backup] ZIP 导出失败，回退单文件 JSON', zipErr);
+                console.error('[backup] ZIP 导出失败', zipErr);
+                if (isMobile) {
+                    if (typeof showNotification === 'function') {
+                        showNotification('手机内存不足，已安全停止导出；可先导出聊天记录，或改用电脑导出全量备份', 'error', 6000);
+                    }
+                    return;
+                }
                 if (typeof showNotification === 'function') {
                     showNotification('ZIP 打包失败，已改为单文件 JSON（大备份可能较难解析）', 'warning', 4500);
                 }
