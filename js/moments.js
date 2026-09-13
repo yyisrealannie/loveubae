@@ -40,7 +40,7 @@
       if (group.disabled) (group.items || []).forEach(item => disabledGroups.add(item));
     });
     const source = typeof customReplies !== 'undefined' ? customReplies : window._customReplies;
-    return Array.isArray(source) ? [...new Set(source.filter(x => typeof x === 'string' && !disabled.has(x) && !disabledGroups.has(x)).map(x => x.trim()).filter(Boolean))].slice(0, 500) : [];
+    return Array.isArray(source) ? [...new Set(source.filter(x => typeof x === 'string' && !disabled.has(x) && !disabledGroups.has(x)).map(x => x.trim().slice(0, 1000)).filter(Boolean))].slice(0, 500) : [];
   }
   async function syncCards() {
     const cards = myCards();

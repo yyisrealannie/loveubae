@@ -1,4 +1,4 @@
-const CACHE_NAME = 'loveubae-v9';
+const CACHE_NAME = 'loveubae-v10';
 const LOCAL_ASSETS = [
   './', './index.html', './manifest.webmanifest', './css/styles.css',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
