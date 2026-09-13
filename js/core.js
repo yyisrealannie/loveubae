@@ -949,6 +949,37 @@ function createMessageFragment(msg, prevMsg, nextMsg, lastSenderRef) {
         lastSenderRef.current = null;
     }
 
+    if (msg.type === 'wallet-transfer' && msg.walletTransfer) {
+        const t = msg.walletTransfer;
+        const own = t.sender === 'self';
+        const wrapper = document.createElement('div');
+        wrapper.className = `message-wrapper ${own ? 'sent' : 'received'} wallet-message-wrapper`;
+        wrapper.dataset.id = msg.id;
+        wrapper.dataset.msgId = msg.id;
+        const card = document.createElement('div');
+        card.className = `wallet-chat-card ${t.status === 'claimed' ? 'claimed' : ''}`;
+        const icon = document.createElement('span'); icon.className = 'wallet-chat-icon'; icon.textContent = t.kind === 'redpacket' ? '🧧' : '¥';
+        const details = document.createElement('div'); details.className = 'wallet-chat-details';
+        const title = document.createElement('strong');
+        title.textContent = own ? (t.kind === 'redpacket' ? '送你一个红包' : '给你的转账') : (t.kind === 'redpacket' ? '给你的红包' : '给你的转账');
+        const caption = document.createElement('span'); caption.textContent = t.caption || '一点心意';
+        const status = document.createElement('small');
+        status.textContent = t.status === 'claimed' ? (own ? '对方已领取' : '已领取') : (own ? '等待对方领取' : '点击领取');
+        details.append(title,caption,status);
+        card.append(icon,details);
+        if (own || t.status === 'claimed') {
+            const money = document.createElement('strong'); money.className = 'wallet-chat-money';
+            money.textContent = `¥${(Number(t.amount_cents) / 100).toFixed(2)}`; card.append(money);
+        } else {
+            const claim = document.createElement('button'); claim.type = 'button'; claim.className = 'wallet-claim-btn';
+            claim.textContent = '领取'; claim.addEventListener('click', () => window.MilkWallet?.claim(t.id)); card.append(claim);
+        }
+        wrapper.append(card);
+        fragment.append(wrapper);
+        lastSenderRef.current = msg.sender;
+        return fragment;
+    }
+
     if (msg.type === 'system') {
         const systemMsgDiv = document.createElement('div');
         systemMsgDiv.className = 'system-message';
