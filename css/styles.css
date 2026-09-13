@@ -10982,3 +10982,29 @@
 .cloud-auto-row input { accent-color: var(--accent-color); }
 .cloud-sync-actions { display:flex; gap:8px; margin-top:8px; }
 .cloud-sync-actions .modal-btn { flex:1; }
+/* 爱你多一天 — 独立时间线，不改变原聊天页面布局 */
+.moments-screen { position: fixed; z-index: 2000; inset: 0; background: #f9f6f3; color: #352c30; display: none; overflow: auto; overscroll-behavior: contain; }
+.moments-screen.open { display: block; }
+.moments-shell { width: min(680px, 100%); margin: auto; padding: 0 16px 90px; }
+.moments-top { position: sticky; top: 0; z-index: 2; background: #f9f6f3ed; backdrop-filter: blur(12px); display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid #eadfdf; }
+.moments-top h2 { font-size: 19px; margin: 0; flex: 1; }
+.moments-top button, .moments-screen button { cursor: pointer; }
+.moments-btn { border: 0; border-radius: 12px; padding: 9px 12px; background: #e9dedf; color: #392e34; font: inherit; }
+.moments-primary { background: #8b6474; color: white; }
+.moments-tabs { display: flex; gap: 8px; margin: 16px 0; }
+.moments-row button.active { background: #8b6474; color: white; }
+.moments-note { color: #766970; font-size: 13px; line-height: 1.6; margin: 12px 0; }
+.moments-card { background: white; border: 1px solid #eee4e3; border-radius: 18px; padding: 16px; margin: 12px 0; overflow-wrap: anywhere; }
+.moments-field { width: 100%; box-sizing: border-box; border: 1px solid #e5d9dc; background: white; border-radius: 12px; padding: 10px; font: inherit; resize: vertical; color: #352c30; }
+.moments-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.moments-row > .moments-field { flex: 1; min-width: 120px; }
+.moments-person { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.moments-person .moments-dot { background: #e9d7df; border-radius: 50%; width: 30px; height: 30px; display: grid; place-items: center; color: #765462; }
+.moments-body { white-space: pre-wrap; line-height: 1.6; margin: 12px 0; }
+.moments-media { display: block; max-width: 100%; max-height: 420px; object-fit: contain; border-radius: 12px; margin: 10px 0; }
+.moments-sticker { max-width: 120px; max-height: 120px; }
+.moments-meta { color: #93848a; font-size: 12px; }
+.moments-comment { border-top: 1px solid #f0e9e9; padding: 9px 0; font-size: 14px; }
+.moments-gallery { display: grid; grid-template-columns: repeat(auto-fill,minmax(125px,1fr)); gap: 10px; }
+.moments-gallery-item img { width: 100%; height: 125px; object-fit: cover; border-radius: 12px; }
+.moments-gallery-item label { display: block; font-size: 12px; }
