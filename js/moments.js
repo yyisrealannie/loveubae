@@ -105,7 +105,10 @@
   function renderFeed(root) {
     if (!config?.cards?.length) root.append(note('还没有同步可用字卡。他的动态和评论会从你的字卡库挑选；先在聊天页添加字卡，然后点“同步字卡”。你仍然可以先发自己的动态。'));
     root.append(row(button('同步字卡', async () => {
-      try { const count = await syncCards(); window.alert(`已同步 ${count} 条可用字卡；不上传整站聊天备份。`); renderShell(); } catch (e) { alertError(e); }
+      try {
+        if (!myCards().length && config?.cards?.length && !window.confirm('这台设备暂无字卡。继续会清空云端动态的字卡池，确定吗？')) return;
+        const count = await syncCards(); window.alert(`已同步 ${count} 条可用字卡；不上传整站聊天备份。`); renderShell();
+      } catch (e) { alertError(e); }
     }), note('他约每周发 1 条、偶尔 2 条；你发帖后，他会在约 2–9 分钟内评论。关闭网页也会继续。')));
     const compose = node('div', 'moments-card');
     const text = field('textarea', '记下今天想说的话…'); const photo = selector('photo');
@@ -195,7 +198,10 @@
         body().replaceChildren(note('先用你自己的 Supabase 邮箱账号登录，才能安全保存动态和图库。'));
         body().append(button('去登录', () => window.MilkCloudSync.open(), true)); return;
       }
-      await refresh(); await syncCards(); renderShell();
+      await refresh();
+      // 新设备没有本地字卡时保留云端池，不会因为打开页面而清空它。
+      if (myCards().length || !config) await syncCards();
+      renderShell();
     } catch (e) { body().replaceChildren(note('打开失败：' + errorText(e))); }
   }
   document.addEventListener('DOMContentLoaded', () => document.getElementById('moments-open')?.addEventListener('click', open));
