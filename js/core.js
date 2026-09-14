@@ -515,41 +515,28 @@ const _BACKUP_PREFIX = 'BACKUP_V1_';
 function _backupCriticalData() {
     if (window._skipBackup) return;
     try {
-        const backupPayload = {
-            ts: Date.now(),
-            messages: messages,
-            settings: settings,
-            sessionId: SESSION_ID,
-            anniversaries: anniversaries
-        };
-
-        let payloadToStore = backupPayload;
-        const msgSizeEstimate = messages.length * 500; 
-        if (msgSizeEstimate > 3 * 1024 * 1024) {
-            payloadToStore = {
-                ...backupPayload,
-                messages: messages.slice(-200),
-                _truncated: true
-            };
-        }
-
-        const json = JSON.stringify(payloadToStore);
-
-        if (json.length > 4.5 * 1024 * 1024) {
-            const smallerPayload = {
-                ...payloadToStore,
-                messages: messages.slice(-50),
-                _truncated: true
-            };
-            const smallerJson = JSON.stringify(smallerPayload);
-            localStorage.setItem(_BACKUP_PREFIX + 'critical', smallerJson);
-        } else {
-            localStorage.setItem(_BACKUP_PREFIX + 'critical', json);
-        }
+        // 应急副本只保留少量轻量消息；主副本在 IndexedDB，云端为逐条追加。
+        // 不复制大型 base64 图片，也不先 stringify 全部历史。
+        const recent = messages.slice(-50).map(function (m) {
+            const copy = { ...m };
+            if (typeof copy.image === 'string' && copy.image.length > 20000) {
+                copy.image = null;
+                copy._emergencyImageOmitted = true;
+            }
+            if (typeof copy.text === 'string' && copy.text.length > 5000) copy.text = copy.text.slice(0, 5000);
+            return copy;
+        });
+        const json = JSON.stringify({
+            ts: Date.now(), messages: recent, settings: {},
+            sessionId: SESSION_ID, _truncated: messages.length > 50
+        });
+        if (json.length > 3 * 1024 * 1024) return;
+        const previous = localStorage.getItem(_BACKUP_PREFIX + 'critical');
+        // 旧应急副本可能是仅存的历史：不以较小的近期副本覆盖它。
+        if (previous && previous.length > json.length * 2) return;
+        localStorage.setItem(_BACKUP_PREFIX + 'critical', json);
         localStorage.setItem(_BACKUP_PREFIX + 'timestamp', String(Date.now()));
-    } catch (e) {
-        console.warn('localStorage 备份写入失败（可能存储已满）:', e);
-    }
+    } catch (e) { console.warn('应急副本写入失败，未清除已有数据:', e); }
 }
 
 function _tryRecoverFromBackup() {
@@ -630,6 +617,7 @@ const saveData = async () => {
     }
 
     _backupCriticalData();
+    if (failed.length) throw new Error('本机有 '+failed.length+' 项写入失败：'+failed.join(', '));
 };
 
         function initializeRandomUI() {
@@ -1246,6 +1234,7 @@ const addMessage = (message) => {
 
     const prevMsg = messages.length > 0 ? messages[messages.length - 1] : null;
     messages.push(message);
+    try { window.MilkSafeSync?.recordMessage(message); } catch (e) { console.warn('[safe-sync] 消息待重新尝试', e); }
     
     if (wasEmpty) {
         DOMElements.emptyState.style.display = 'none';

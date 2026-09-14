@@ -114,7 +114,7 @@
         +       '<div class="dm-danger-card-icon"><i class="fas fa-eraser"></i></div>'
         +       '<div class="dm-danger-card-body">'
         +         '<div class="dm-danger-card-title">清除会话</div>'
-        +         '<div class="dm-danger-card-desc">删除本会话消息</div>'
+        +         '<div class="dm-danger-card-desc">仅删除本机显示；云端副本可找回</div>'
         +       '</div>'
         +     '</button>'
         +     '<button class="dm-danger-card dm-danger-card-red dm-danger-card-half" id="clear-storage">'
@@ -247,41 +247,30 @@
     }
 
     function updateStats() {
-        var total = 0, msgs = 0, cfg = 0, media = 0;
-        var processLS = function () {
-            for (var i = 0; i < localStorage.length; i++) {
-                var k = localStorage.key(i) || '';
-                var v = localStorage.getItem(k) || '';
-                var bytes = (k.length + v.length) * 2;
-                total += bytes;
-                if (/messages|msgs|session/i.test(k)) msgs += bytes;
-                else if (v.startsWith('data:image') || v.startsWith('data:video')) media += bytes;
-                else cfg += bytes;
-            }
-            applyStats(total, msgs, cfg, media);
-        };
+        // iPhone: 不读取或序列化 IndexedDB 中的消息/图片来绘制用量卡。
+        var total = 0;
         try {
-            if (window.localforage) {
-                localforage.keys().then(function (keys) {
-                    var promises = keys.map(function (k) {
-                        return localforage.getItem(k).then(function (raw) {
-                            if (raw == null) return { k: k, b: 0 };
-                            var str = typeof raw === 'string' ? raw : JSON.stringify(raw);
-                            return { k: k, b: (k.length + str.length) * 2 };
-                        });
-                    });
-                    Promise.all(promises).then(function (results) {
-                        results.forEach(function (r) {
-                            total += r.b;
-                            if (/messages|msgs|session/i.test(r.k)) msgs += r.b;
-                            else if (/avatar|image|photo|bg|background|wallpaper/i.test(r.k)) media += r.b;
-                            else cfg += r.b;
-                        });
-                        applyStats(total, msgs, cfg, media);
-                    }).catch(processLS);
-                }).catch(processLS);
-            } else { processLS(); }
-        } catch (e) { processLS(); }
+            var count = typeof messages !== 'undefined' && Array.isArray(messages) ? messages.length : 0;
+            var msgEl = document.getElementById('dm-stat-msgs');
+            if (msgEl) msgEl.textContent = count + ' 条';
+            var settingsEl = document.getElementById('dm-stat-settings');
+            if (settingsEl) settingsEl.textContent = '本机保存';
+            var mediaEl = document.getElementById('dm-stat-media');
+            if (mediaEl) mediaEl.textContent = '按需读取';
+            if (navigator.storage && navigator.storage.estimate) {
+                navigator.storage.estimate().then(function (estimate) {
+                    total = Number(estimate.usage || 0);
+                    var quota = Number(estimate.quota || 0);
+                    var el = document.getElementById('dm-storage-total');
+                    if (el) el.textContent = '~' + fmt(total) + (quota ? ' / ' + fmt(quota) : '');
+                    var bar = document.getElementById('dm-storage-bar');
+                    if (bar && quota) bar.style.width = Math.min(100,total / quota * 100).toFixed(1) + '%';
+                }).catch(function () { var el=document.getElementById('dm-storage-total'); if(el) el.textContent='暂不可估计'; });
+            } else {
+                var el = document.getElementById('dm-storage-total');
+                if (el) el.textContent = '浏览器不提供安全估计';
+            }
+        } catch (e) { var fallback = document.getElementById('dm-storage-total'); if (fallback) fallback.textContent = '暂不可估计'; }
     }
 
     function syncToggles() {
@@ -442,7 +431,7 @@
 
         var clearChatBtn = mc.querySelector('#clear-chat-only');
         if (clearChatBtn) clearChatBtn.addEventListener('click', function () {
-            if (!confirm('确定要清除当前会话的所有消息吗？\n\n所有设置、头像、字卡等数据将保留，仅聊天记录会被删除。\n\n此操作无法恢复！')) return;
+            if (!confirm('确定要清除当前会话的所有消息吗？\n\n所有设置、头像、字卡等数据将保留，仅聊天记录会被删除。\n\n云端防丢副本仍会保留，重新合并时可能找回这些消息。')) return;
             // 修复：直接赋值 let messages（window.messages 赋值不影响 let 绑定）
             messages = [];
             displayedMessageCount = typeof HISTORY_BATCH_SIZE !== 'undefined' ? HISTORY_BATCH_SIZE : 20;
@@ -573,57 +562,13 @@
 
 })();
 
-function updateStorageUsageBar() {
-    var bar   = document.getElementById('dm-storage-bar')   || document.getElementById('storage-usage-fill');
-    var text  = document.getElementById('dm-storage-total') || document.getElementById('storage-usage-text');
-    if (!bar && !text) return;
-
-    try {
-        if (window.localforage && window.APP_PREFIX) {
-            localforage.keys().then(function(keys) {
-                var promises = keys.map(function(k) {
-                    return localforage.getItem(k).then(function(v) {
-                        if (v === null || v === undefined) return 0;
-                        var str = typeof v === 'string' ? v : JSON.stringify(v);
-                        return (k.length + str.length) * 2;
-                    });
-                });
-                Promise.all(promises).then(function(sizes) {
-                    var total   = sizes.reduce(function(a,b){return a+b;},0);
-                    var usedKB  = (total / 1024).toFixed(1);
-                    var maxBytes = 5 * 1024 * 1024;
-                    var pct     = Math.min(total / maxBytes * 100, 100).toFixed(1);
-                    var fmt     = function(b) { return b<1024 ? b+' B' : b<1048576 ? (b/1024).toFixed(1)+' KB' : (b/1048576).toFixed(2)+' MB'; };
-
-                    if (bar) {
-                        bar.style.width = pct + '%';
-                        if (parseFloat(pct) > 80)
-                            bar.style.background = 'linear-gradient(90deg,#FF3B30,#CC0000)';
-                        else if (parseFloat(pct) > 50)
-                            bar.style.background = 'linear-gradient(90deg,#FF9F0A,#E07000)';
-                        else
-                            bar.style.background = 'linear-gradient(90deg,var(--accent-color),rgba(var(--accent-color-rgb),0.6))';
-                    }
-                    if (text) text.textContent = fmt(total) + ' / ~5 MB (' + pct + '%)';
-                });
-            }).catch(function() {
-                var ls = 0;
-                for (var i = 0; i < localStorage.length; i++) {
-                    var k = localStorage.key(i) || '';
-                    var v = localStorage.getItem(k) || '';
-                    ls += (k.length + v.length) * 2;
-                }
-                var pct = Math.min(ls / (5*1024*1024) * 100, 100).toFixed(1);
-                if (bar) bar.style.width = pct + '%';
-                if (text) text.textContent = (ls/1024).toFixed(1) + ' KB (localStorage)';
-            });
-        } else {
-            if (text) text.textContent = '暂无数据';
-            if (bar)  bar.style.width  = '0%';
-        }
-    } catch(e) {
-        if (text) text.textContent = '无法读取';
-    }
+function updateStorageUsageBar() { 
+    // 同一安全估计，不再重复扫描/JSON.stringify 所有聊天内容。
+    if (typeof navigator.storage?.estimate !== 'function') return;
+    navigator.storage.estimate().then(function (e) {
+        var label=document.getElementById('dm-storage-total');
+        if (label) label.textContent='~'+(Number(e.usage||0)/1048576).toFixed(2)+' MB';
+    }).catch(function () {});
 }
 
 (function() {

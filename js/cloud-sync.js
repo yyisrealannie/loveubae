@@ -64,7 +64,7 @@
         let text = configured() ? '已配置，尚未登录' : '尚未连接';
         try {
             const user = await currentUser();
-            if (user) text = `已登录 ${user.email || ''} · ${formatLastSync()}`;
+            if (user) text = `已登录 ${user.email || ''} · ${window.MilkSafeSync?.statusText() || '增量同步待启动'}`;
         } catch (e) {}
         if (inline) inline.textContent = text;
         if (modalStatus) modalStatus.textContent = text;
@@ -79,14 +79,14 @@
         modal.innerHTML = `
             <div class="modal-content cloud-sync-card">
                 <div class="modal-title"><i class="fas fa-cloud"></i><span>跨设备同步</span></div>
-                <div class="cloud-sync-note">Supabase 项目已连接。首次使用请注册并登录；完成建表后即可上传和恢复记录。</div>
+                <div class="cloud-sync-note">新消息按条追加上传；断网时会留在本机，恢复联网后重试。云端合并不会覆盖本机记录。</div>
                 <input class="modal-input" id="cloud-sync-url" inputmode="url" placeholder="Supabase Project URL">
                 <input class="modal-input" id="cloud-sync-anon" type="password" placeholder="Supabase anon key">
                 <div class="cloud-sync-divider">账户</div>
                 <input class="modal-input" id="cloud-sync-email" type="email" autocomplete="email" placeholder="邮箱">
                 <input class="modal-input" id="cloud-sync-password" type="password" autocomplete="current-password" placeholder="密码（至少 6 位）">
                 <div id="cloud-sync-status" class="cloud-sync-status">尚未连接</div>
-                <label class="cloud-auto-row"><input type="checkbox" id="cloud-sync-auto"> 每 5 分钟自动上传一次</label>
+                <label class="cloud-auto-row"><input type="checkbox" id="cloud-sync-auto"> 自动及时保存新消息与字卡（推荐）</label>
                 <div class="cloud-sync-actions">
                     <button class="modal-btn modal-btn-secondary" id="cloud-sync-signup">注册</button>
                     <button class="modal-btn modal-btn-primary" id="cloud-sync-login">登录</button>
@@ -95,8 +95,8 @@
                     <button class="modal-btn modal-btn-secondary" id="cloud-sync-resend">重新发送验证邮件</button>
                 </div>
                 <div class="cloud-sync-actions">
-                    <button class="modal-btn modal-btn-secondary" id="cloud-sync-download"><i class="fas fa-cloud-arrow-down"></i> 从云端恢复</button>
-                    <button class="modal-btn modal-btn-primary" id="cloud-sync-upload"><i class="fas fa-cloud-arrow-up"></i> 上传当前数据</button>
+                    <button class="modal-btn modal-btn-secondary" id="cloud-sync-download"><i class="fas fa-cloud-arrow-down"></i> 合并云端记录（不覆盖）</button>
+                    <button class="modal-btn modal-btn-primary" id="cloud-sync-upload"><i class="fas fa-cloud-arrow-up"></i> 立即增量上传</button>
                 </div>
                 <div class="cloud-sync-actions">
                     <button class="modal-btn modal-btn-secondary" id="cloud-sync-logout">退出登录</button>
@@ -112,7 +112,7 @@
         const auto = modal.querySelector('#cloud-sync-auto');
         url.value = projectUrl();
         anon.value = publishableKey();
-        auto.checked = localStorage.getItem(KEYS.auto) === 'true';
+        auto.checked = localStorage.getItem(KEYS.auto) !== 'false';
 
         function saveConfig() {
             const nextUrl = url.value.trim().replace(/\/$/, '');
@@ -182,54 +182,37 @@
     async function upload(options) {
         const quiet = options && options.quiet;
         try {
-            const c = getClient();
-            const user = await currentUser();
-            if (!c || !user) throw new Error('请先配置并登录');
-            await saveData();
-            const payload = await ChatBackup.buildBackupPayload({
-                inclMsgs: true, inclSet: true, inclCustom: true, inclAnn: true,
-                inclThemes: true, inclDg: true, inclStickers: true
-            });
-            const result = await c.from('milk_sync').upsert({
-                user_id: user.id,
-                payload,
-                updated_at: new Date().toISOString()
-            }, { onConflict: 'user_id' });
-            if (result.error) throw result.error;
-            localStorage.setItem(KEYS.last, String(Date.now()));
-            if (!quiet) showNotification('当前数据已上传云端', 'success');
+            if (!window.MilkSafeSync) throw new Error('安全同步模块未加载');
+            const result = await window.MilkSafeSync.flush(true);
+            await window.MilkSafeSync.syncProfile();
+            if (result.error) throw new Error(result.error);
+            if (!quiet) showNotification(result.pending
+                ? '已上传一部分；还有 '+result.pending+' 条待传，保持页面打开联网会继续上传'
+                : '聊天和字卡增量同步完成（大图如不支持会明确提示）', result.pending ? 'info' : 'success', 5000);
             await refreshStatus();
         } catch (e) {
-            if (!quiet) showNotification('上传失败：' + (e.message || '未知错误'), 'error', 5000);
+            if (!quiet) showNotification('上传尚未完成：'+(e.message || '未知错误')+'；本机记录未清除', 'error', 6000);
         }
     }
 
     async function download() {
         try {
-            const c = getClient();
-            const user = await currentUser();
-            if (!c || !user) throw new Error('请先配置并登录');
-            const result = await c.from('milk_sync').select('payload,updated_at').eq('user_id', user.id).maybeSingle();
-            if (result.error) throw result.error;
-            if (!result.data || !result.data.payload) throw new Error('云端还没有备份');
-            if (!confirm(`将用云端数据覆盖本机对应数据。\n云端更新时间：${new Date(result.data.updated_at).toLocaleString('zh-CN')}\n\n确定继续吗？`)) return;
-            await ChatBackup.applyBackupToStorage(result.data.payload, { selective: false });
-            await loadData();
-            renderMessages();
-            updateUI();
-            localStorage.setItem(KEYS.last, String(Date.now()));
-            showNotification('云端数据已恢复并立即生效', 'success', 3000);
+            if (!window.MilkSafeSync) throw new Error('安全同步模块未加载');
+            const result = await window.MilkSafeSync.mergeRemote();
+            showNotification(result.added
+                ? '已合并 '+result.added+' 条云端消息，本机原有记录保留'
+                : '没有需要合并的新记录；本机内容没有被覆盖', 'success', 5000);
             await refreshStatus();
         } catch (e) {
-            showNotification('恢复失败：' + (e.message || '未知错误'), 'error', 5000);
+            showNotification('合并失败：'+(e.message || '未知错误')+'；本机记录未清除', 'error', 6000);
         }
     }
 
     function scheduleAutoSync() {
         if (autoTimer) clearInterval(autoTimer);
         autoTimer = null;
-        if (localStorage.getItem(KEYS.auto) === 'true' && configured()) {
-            autoTimer = setInterval(() => upload({ quiet: true }), 5 * 60 * 1000);
+        if (window._milkAppReady && localStorage.getItem(KEYS.auto) !== 'false' && window.MilkSafeSync) {
+            window.MilkSafeSync.start().catch(console.warn);
         }
     }
 

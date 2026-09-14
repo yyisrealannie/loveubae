@@ -214,7 +214,7 @@
                 var rawVal = await localforage.getItem(key);
                 if (rawVal === null || rawVal === undefined) continue;
                 lfData[key] = deepCloneJsonSafe(rawVal);
-            } catch (e) { console.warn('[backup] 读取失败', key, e); }
+            } catch (e) { console.error('[backup] 读取失败', key, e); throw new Error('备份读取失败：'+key); }
         }
         var lsData = {};
         for (var j = 0; j < localStorage.length; j++) {
@@ -504,6 +504,7 @@
         }
 
         var lfKeys = Object.keys(lfRaw);
+        var restoreFailed = [];
         var backupSid = data.sessionId || inferBackupSessionId(lfKeys, data.appPrefix);
         var curSid = typeof SESSION_ID !== 'undefined' ? SESSION_ID : null;
         var appPfx = data.appPrefix || (typeof APP_PREFIX !== 'undefined' ? APP_PREFIX : 'CHAT_APP_V3_');
@@ -517,6 +518,7 @@
                 await localforage.setItem(targetKey, val);
             } catch (e) {
                 console.warn('[backup] 写入失败', targetKey, e);
+                restoreFailed.push(targetKey);
             }
         }
 
@@ -529,6 +531,7 @@
                 localStorage.setItem(targetLsKey, lsv);
             } catch (e2) {
                 console.warn('[backup] localStorage 恢复失败', targetLsKey, e2);
+                restoreFailed.push(targetLsKey);
             }
         }
 
@@ -551,6 +554,8 @@
                 }
             } catch (e4) {}
         }
+
+        if (restoreFailed.length) throw new Error('有 '+restoreFailed.length+' 项恢复失败，原始备份未删除：'+restoreFailed.slice(0,3).join(', '));
 
         if (typeof APP_PREFIX !== 'undefined' && typeof SESSION_ID !== 'undefined') {
             try { await localforage.setItem(APP_PREFIX + 'lastSessionId', SESSION_ID); } catch (e3) {}

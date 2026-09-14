@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         updateLoader('正在读取记忆存档...', '40%');
         await safeAwait(loadData());
+        window._milkAppReady = true;
         window.dispatchEvent(new Event('milk-app-ready'));
 
         updateLoader('正在渲染我们的世界...', '70%');
