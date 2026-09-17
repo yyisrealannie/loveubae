@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const VAPID_PUBLIC_KEY = 'BBpamRO3IQT5IUOCi3WpSi4J4RZP7WB1PBHC7QxqjXbjxYkiG7SZMg-tclwMWYgVwMjLY09Jal9aOzHTmsELXQU';
+    const VAPID_PUBLIC_KEY = 'BNFR1ut7XUBWxqJGSQogCGj8fuPBn-hSOsxCs51q4OiCvqVh7HOfUh2cfA1T8Eo6WYtHLNVweJzPUJ_LeuF7p0c';
     const ACTIVE_UNTIL_KEY = 'sleepPushActiveUntil';
     const DURATION_KEY = 'sleepPushDurationHours';
 
@@ -20,6 +20,8 @@
         return {
             text: document.getElementById('sleep-push-status'),
             button: document.getElementById('sleep-push-enable'),
+            test: document.getElementById('sleep-push-test'),
+            disable: document.getElementById('sleep-push-disable'),
             hours: document.getElementById('sleep-push-hours'),
             hoursValue: document.getElementById('sleep-push-hours-value'),
             frequency: document.getElementById('sleep-push-frequency')
@@ -68,22 +70,32 @@
             el.text.textContent = '当前系统不支持 Web Push';
             el.button.textContent = '不可用';
             el.button.disabled = true;
+            if (el.test) el.test.disabled = true;
+            if (el.disable) el.disable.disabled = true;
         } else if (!isStandalone()) {
             el.text.textContent = '请先用 Safari“添加到主屏幕”，再从桌面打开';
             el.button.textContent = '待安装';
             el.button.disabled = true;
+            if (el.test) el.test.disabled = true;
+            if (el.disable) el.disable.disabled = true;
         } else if (Notification.permission === 'denied') {
             el.text.textContent = '通知已被系统拒绝，请到 iPhone 设置中允许';
             el.button.textContent = '被阻止';
             el.button.disabled = true;
+            if (el.test) el.test.disabled = true;
+            if (el.disable) el.disable.disabled = expiry <= Date.now();
         } else if (expiry > Date.now()) {
             el.text.textContent = '已开启，持续到 ' + formatTime(expiry);
             el.button.textContent = '续' + hours + '小时';
             el.button.disabled = false;
+            if (el.test) el.test.disabled = false;
+            if (el.disable) el.disable.disabled = false;
         } else {
             el.text.textContent = '锁屏或切换 App 后仍可接收系统推送';
             el.button.textContent = '开启';
             el.button.disabled = false;
+            if (el.test) el.test.disabled = true;
+            if (el.disable) el.disable.disabled = expiry <= 0;
         }
     }
 
@@ -196,6 +208,51 @@
         }
     }
 
+    async function test() {
+        try {
+            const identity = await cloudIdentity();
+            const subscription = await currentSubscription(false);
+            if (!subscription || Notification.permission !== 'granted') {
+                throw new Error('请先点“开启”，完成通知授权');
+            }
+            const result = await identity.client.functions.invoke('sleep-push', {
+                body: { action: 'test' }
+            });
+            if (result.error) throw result.error;
+            if (!result.data || !result.data.sent) throw new Error('测试消息未送出，请重新开启后再试');
+            if (typeof showNotification === 'function') {
+                showNotification('测试推送已发送，请锁屏或切换 App 查看', 'success', 4200);
+            }
+        } catch (error) {
+            if (typeof showNotification === 'function') {
+                showNotification('测试失败：' + (error.message || '请稍后重试'), 'error', 6000);
+            }
+        }
+    }
+
+    async function disable() {
+        try {
+            const identity = await cloudIdentity();
+            const subscription = await currentSubscription(false);
+            if (subscription) {
+                const result = await identity.client.from('milk_push_subscriptions')
+                    .delete().eq('user_id', identity.user.id).eq('endpoint', subscription.endpoint);
+                if (result.error) throw result.error;
+                await subscription.unsubscribe();
+            }
+            localStorage.removeItem(ACTIVE_UNTIL_KEY);
+            localStorage.setItem('notifEnabled', '0');
+            await refreshStatus();
+            if (typeof showNotification === 'function') {
+                showNotification('锁屏推送已关闭；聊天记录没有删除', 'success', 3000);
+            }
+        } catch (error) {
+            if (typeof showNotification === 'function') {
+                showNotification('关闭失败：' + (error.message || '请稍后重试'), 'error', 5000);
+            }
+        }
+    }
+
     async function importPendingMessages() {
         try {
             if (typeof addMessage !== 'function') return;
@@ -222,7 +279,7 @@
         } catch (e) {}
     }
 
-    window.SleepPush = { enable, setDuration, refreshStatus, syncProfile, importPendingMessages };
+    window.SleepPush = { enable, disable, test, setDuration, refreshStatus, syncProfile, importPendingMessages };
     document.addEventListener('DOMContentLoaded', function () {
         refreshStatus();
         setTimeout(importPendingMessages, 3500);

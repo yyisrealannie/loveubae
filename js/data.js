@@ -65,11 +65,6 @@
         +   '<div class="dm-section-label"><i class="fas fa-bell"></i> 通知与关于</div>'
         +   '<div class="dm-row-card">'
         +     '<div class="dm-row-item">'
-        +       '<div class="dm-row-icon amber"><i class="fas fa-bell"></i></div>'
-        +       '<div class="dm-row-info"><div class="dm-row-title">后台消息推送</div><div class="dm-row-desc" id="notif-status-text">收到新消息时弹出提醒</div></div>'
-        +       '<label class="dm-toggle-pill"><input type="checkbox" id="notif-permission-toggle" onchange="handleNotifToggle(this)"><span class="dm-toggle-slider"></span></label>'
-        +     '</div>'
-        +     '<div class="dm-row-item">'
         +       '<div class="dm-row-icon blue"><i class="fas fa-eye"></i></div>'
         +       '<div class="dm-row-info"><div class="dm-row-title">通知显示内容</div><div class="dm-row-desc" id="notif-privacy-desc">显示姓名和消息内容</div></div>'
         +       '<select class="dm-inline-select" id="notif-privacy-mode" aria-label="通知显示内容">'
@@ -82,6 +77,11 @@
         +       '<div class="dm-row-icon teal"><i class="fas fa-moon"></i></div>'
         +       '<div class="dm-row-info"><div class="dm-row-title">锁屏／睡眠推送</div><div class="dm-row-desc" id="sleep-push-status">安装到 iPhone 主屏幕后可开启</div></div>'
         +       '<button class="dm-nav-btn dm-push-btn" id="sleep-push-enable" type="button">开启</button>'
+        +     '</div>'
+        +     '<div class="dm-row-item">'
+        +       '<div class="dm-row-icon green"><i class="fas fa-vial"></i></div>'
+        +       '<div class="dm-row-info"><div class="dm-row-title">测试锁屏推送</div><div class="dm-row-desc">立即发送一条测试通知，确认手机设置正确</div></div>'
+        +       '<div class="dm-push-actions"><button class="dm-nav-btn" id="sleep-push-test" type="button">测试</button><button class="dm-nav-btn dm-push-stop" id="sleep-push-disable" type="button">关闭</button></div>'
         +     '</div>'
         +     '<div class="dm-row-item dm-push-duration-row">'
         +       '<div class="dm-row-icon blue"><i class="fas fa-hourglass-half"></i></div>'
@@ -274,10 +274,6 @@
     }
 
     function syncToggles() {
-        var n = document.getElementById('notif-permission-toggle');
-        if (n) n.checked = localStorage.getItem('notifEnabled') === '1'
-                        && 'Notification' in window
-                        && Notification.permission === 'granted';
         var mode = document.getElementById('notif-privacy-mode');
         if (mode) mode.value = localStorage.getItem('notifPrivacyMode') || 'full';
         if (typeof window._refreshNotifPrivacyDescription === 'function') window._refreshNotifPrivacyDescription();
@@ -335,6 +331,14 @@
         var sleepPushButton = mc.querySelector('#sleep-push-enable');
         if (sleepPushButton) sleepPushButton.addEventListener('click', function () {
             if (window.SleepPush) window.SleepPush.enable();
+        });
+        var sleepPushTest = mc.querySelector('#sleep-push-test');
+        if (sleepPushTest) sleepPushTest.addEventListener('click', function () {
+            if (window.SleepPush) window.SleepPush.test();
+        });
+        var sleepPushDisable = mc.querySelector('#sleep-push-disable');
+        if (sleepPushDisable) sleepPushDisable.addEventListener('click', function () {
+            if (window.SleepPush) window.SleepPush.disable();
         });
         var sleepPushHours = mc.querySelector('#sleep-push-hours');
         if (sleepPushHours) sleepPushHours.addEventListener('input', function () {
@@ -634,53 +638,6 @@ window._sendPartnerNotification = function(title, body) {
     } catch(e) {}
 };
 
-window.handleNotifToggle = function(checkbox) {
-    var statusEl = document.getElementById('notif-status-text');
-    if (!('Notification' in window)) {
-        checkbox.checked = false;
-        if (statusEl) statusEl.textContent = '⚠️ 您的浏览器不支持通知功能，请更换浏览器';
-        return;
-    }
-    if (checkbox.checked) {
-        Notification.requestPermission().then(function(perm) {
-            if (perm === 'granted') {
-                if (statusEl) statusEl.textContent = '✅ 已开启 — 当页面在后台时，收到消息会弹出系统通知';
-                localStorage.setItem('notifEnabled', '1');
-                try { new Notification('loveubae 通知已开启 ✨', { body: '页面在后台时也会显示提醒', tag: 'notif-test' }); } catch(e) {}
-            } else if (perm === 'denied') {
-                checkbox.checked = false;
-                if (statusEl) statusEl.textContent = '❌ 权限被拒绝，请自行搜索如何开启';
-                localStorage.setItem('notifEnabled', '0');
-            } else {
-                checkbox.checked = false;
-                if (statusEl) statusEl.textContent = '⚠️ 未做出选择，请重试';
-                localStorage.setItem('notifEnabled', '0');
-            }
-        }).catch(function() {
-            checkbox.checked = false;
-            if (statusEl) statusEl.textContent = '❌ 请求权限失败，请自行搜索如何打开';
-            localStorage.setItem('notifEnabled', '0');
-        });
-    } else {
-        if (statusEl) statusEl.textContent = '已关闭 — 后台将不再弹出消息提醒';
-        localStorage.setItem('notifEnabled', '0');
-    }
-};
-
 document.addEventListener('DOMContentLoaded', function() {
     window._applyCustomAppLogo(localStorage.getItem('customAppLogo') || '');
-    var toggle   = document.getElementById('notif-permission-toggle');
-    var statusEl = document.getElementById('notif-status-text');
-    if (!toggle) return;
-    var enabled = localStorage.getItem('notifEnabled') === '1';
-    var granted = ('Notification' in window) && Notification.permission === 'granted';
-    toggle.checked = enabled && granted;
-    if (!statusEl) return;
-    if (toggle.checked) {
-        statusEl.textContent = '✅ 已开启 — 当页面在后台时，收到消息会弹出系统通知';
-    } else if ('Notification' in window && Notification.permission === 'denied') {
-        statusEl.textContent = '❌ 通知权限已被浏览器屏蔽，请自行搜索如何开启';
-    } else {
-        statusEl.textContent = '关闭状态 — 开启后可在后台接收消息提醒';
-    }
 });

@@ -45,7 +45,7 @@ Project URL 和 publishable key 属于可公开的前端配置，已写入个人
 - 音乐支持链接和本地文件；显示浏览器实际存储占用。
 - 词云自定义关键词黑名单。
 - 使用 Wake Lock 做前台常亮，不抢占其他音乐软件音频通道。
-- iPhone 主屏幕版可选择 1–24 小时 Web Push；锁屏和切换 App 后由 Supabase 后台发送，不依赖网页继续运行。发送间隔沿用站内“主动发送”设置。
+- iPhone 主屏幕版可选择 1–24 小时 Web Push；锁屏和切换 App 后由 Supabase 后台发送，不依赖网页继续运行。发送间隔沿用站内“主动发送”设置，并可一键发送测试通知或关闭订阅。
 - 后台通知支持“姓名＋内容 / 仅提示新消息 / 完全不显示”三级隐私设置。
 - 可在数据管理中上传站内 Logo，用于页签、通知图标和应用预览。
 - Supabase 跨设备同步与 PWA 安装。
@@ -58,6 +58,6 @@ Project URL 和 publishable key 属于可公开的前端配置，已写入个人
 - `js/`：应用逻辑与功能模块
 - `supabase/schema.sql`：云同步与推送数据表、权限策略
 - `supabase/functions/sleep-push/`：睡眠推送 Edge Function
-- `supabase/schedule-sleep-push.sql`：每 5 分钟检查推送的定时任务模板
+- `supabase/schedule-sleep-push.sql`：每分钟检查到期推送的定时任务模板
 - `manifest.webmanifest`、`service-worker.js`：PWA 配置
 - `.github/workflows/deploy-pages.yml`：GitHub Pages 自动部署

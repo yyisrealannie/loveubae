@@ -130,19 +130,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         })();
 
-        setTimeout(async () => {
-            if ('Notification' in window && Notification.permission === 'default') {
-                try {
-                    const permission = await Notification.requestPermission();
-                    if (permission === 'granted') {
-                        showNotification('已开启系统通知，收到消息时会提醒你', 'success', 3000);
-                    }
-                } catch(e) {
-                    console.warn('通知权限请求失败:', e);
-                }
-            }
-        }, 3000);
-
     } catch (err) {
         console.error('严重初始化错误:', err);
         try {

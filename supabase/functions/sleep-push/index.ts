@@ -1,14 +1,40 @@
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.57.4'
 import webpush from 'npm:web-push@3.6.7'
 
 const corsHeaders = {
   'content-type': 'application/json; charset=utf-8',
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type',
 }
 
 function env(name: string): string {
   const value = Deno.env.get(name)
   if (!value) throw new Error(`Missing secret: ${name}`)
   return value
+}
+
+async function pushSecrets(admin: SupabaseClient): Promise<{ publicKey: string; privateKey: string; cronSecret: string }> {
+  const envPublic = Deno.env.get('VAPID_PUBLIC_KEY')
+  const envPrivate = Deno.env.get('VAPID_PRIVATE_KEY')
+  const envCron = Deno.env.get('CRON_SECRET')
+  if (envPublic && envPrivate && envCron) {
+    return { publicKey: envPublic, privateKey: envPrivate, cronSecret: envCron }
+  }
+
+  const { data, error } = await admin
+    .from('milk_server_secrets')
+    .select('name,secret_value')
+    .in('name', ['vapid_public_key', 'vapid_private_key', 'cron_secret'])
+  if (error) throw error
+  const values = Object.fromEntries((data || []).map((row) => [row.name, row.secret_value]))
+  if (!values.vapid_public_key || !values.vapid_private_key || !values.cron_secret) {
+    throw new Error('Web Push server secrets are not configured')
+  }
+  return {
+    publicKey: values.vapid_public_key,
+    privateKey: values.vapid_private_key,
+    cronSecret: values.cron_secret,
+  }
 }
 
 function secretKey(): string {
@@ -21,20 +47,57 @@ function secretKey(): string {
 
 Deno.serve(async (request) => {
   try {
-    if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
-    if (request.headers.get('x-cron-secret') !== env('CRON_SECRET')) {
-      return new Response('Unauthorized', { status: 401 })
-    }
-
-    webpush.setVapidDetails(
-      'mailto:noreply@example.com',
-      env('VAPID_PUBLIC_KEY'),
-      env('VAPID_PRIVATE_KEY'),
-    )
-
+    if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+    if (request.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: corsHeaders })
     const admin = createClient(env('SUPABASE_URL'), secretKey(), {
       auth: { persistSession: false, autoRefreshToken: false },
     })
+    const secrets = await pushSecrets(admin)
+    webpush.setVapidDetails('mailto:noreply@example.com', secrets.publicKey, secrets.privateKey)
+
+    const input = await request.json().catch(() => ({})) as { action?: string }
+    if (input.action === 'test') {
+      const authorization = request.headers.get('authorization') || ''
+      const token = authorization.replace(/^Bearer\s+/i, '')
+      if (!token) return new Response('Unauthorized', { status: 401, headers: corsHeaders })
+      const { data: authData, error: authError } = await admin.auth.getUser(token)
+      if (authError || !authData.user) return new Response('Unauthorized', { status: 401, headers: corsHeaders })
+
+      const { data: subscriptions, error: subscriptionError } = await admin
+        .from('milk_push_subscriptions')
+        .select('endpoint,subscription')
+        .eq('user_id', authData.user.id)
+      if (subscriptionError) throw subscriptionError
+
+      let sent = 0
+      let removed = 0
+      for (const row of subscriptions || []) {
+        try {
+          await webpush.sendNotification(row.subscription, JSON.stringify({
+            title: 'loveubae',
+            body: '测试通知已送达，锁屏推送可以正常使用',
+            url: './',
+            tag: 'loveubae-push-test',
+          }), { TTL: 300 })
+          sent += 1
+        } catch (pushError) {
+          const statusCode = Number((pushError as { statusCode?: number }).statusCode || 0)
+          if (statusCode === 404 || statusCode === 410) {
+            await admin.from('milk_push_subscriptions').delete()
+              .eq('user_id', authData.user.id).eq('endpoint', row.endpoint)
+            removed += 1
+          } else {
+            console.error('Test push failed', authData.user.id, statusCode, pushError)
+          }
+        }
+      }
+      return new Response(JSON.stringify({ sent, removed }), { headers: corsHeaders })
+    }
+
+    if (request.headers.get('x-cron-secret') !== secrets.cronSecret) {
+      return new Response('Unauthorized', { status: 401, headers: corsHeaders })
+    }
+
     const now = new Date()
     const { data: due, error } = await admin
       .from('milk_push_subscriptions')
