@@ -67,6 +67,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         updateLoader('连接成功，欢迎回来。', '100%');
         hideWelcomeScreen();
+        setTimeout(() => {
+            try { window.checkAnniversaryCelebrations?.(); } catch (e) { console.warn('[anniversary] 自动庆祝检查失败:', e); }
+        }, 1000);
 
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') {
@@ -103,6 +106,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 } catch (e) {
                     console.warn('[visibilitychange] 恢复备份失败:', e);
                 }
+                setTimeout(() => {
+                    try { window.checkAnniversaryCelebrations?.(); } catch (e) { console.warn('[anniversary] 返回页面时检查失败:', e); }
+                }, 300);
             }
         });
 
