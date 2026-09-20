@@ -445,6 +445,29 @@ async function exportAllData() {
     }
 }
 
+async function exportChatAndCardsQuick() {
+    try {
+        if (typeof ChatBackup === 'undefined' || !ChatBackup.exportBackupToFile) {
+            showNotification('备份模块未加载，请刷新页面重试', 'error');
+            return;
+        }
+        await ChatBackup.exportBackupToFile({
+            inclMsgs: true,
+            inclSet: false,
+            inclCustom: true,
+            inclAnn: false,
+            inclThemes: false,
+            inclDg: false,
+            inclStickers: false
+        });
+    } catch (e) {
+        console.error('聊天与字卡备份失败:', e);
+        showNotification('备份失败，请重试', 'error');
+    }
+}
+
+window.exportChatAndCardsQuick = exportChatAndCardsQuick;
+
 async function importAllData(file) {
     if (!file) return;
     if (file.size > 220 * 1024 * 1024) {
