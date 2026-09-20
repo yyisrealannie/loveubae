@@ -163,30 +163,81 @@ function toggleBatchFavoriteMode() {
     if (typeof playSound === 'function') playSound('anniversary');
 }
 
+        function parseAnniversaryDate(dateString) {
+            const parts = String(dateString || '').split('-').map(Number);
+            if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
+            return new Date(parts[0], parts[1] - 1, parts[2]);
+        }
+
+        function calendarDayDistance(startDate, endDate) {
+            const startUtc = Date.UTC(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+            const endUtc = Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+            return Math.floor((endUtc - startUtc) / 86400000);
+        }
+
+        let anniversaryCelebrationQueue = [];
+        let anniversaryCelebrationShowing = false;
+
         function showAnniversaryAnimation(anniversary) {
-            const startDate = new Date(anniversary.date);
+            const startDate = parseAnniversaryDate(anniversary.date);
             const now = new Date();
-            let diffDays;
-            let title, message;
+            if (!startDate || !DOMElements.anniversaryAnimation.modal) return;
 
-            if (anniversary.type === 'countdown') {
+            const isCountdown = anniversary.type === 'countdown';
+            const diffDays = isCountdown
+                ? Math.max(0, calendarDayDistance(now, startDate))
+                : Math.max(0, calendarDayDistance(startDate, now));
 
-                diffDays = Math.ceil((startDate - now) / (1000 * 60 * 60 * 24));
-                title = "倒数日";
-                message = `即将到来`;
-            } else {
-
-                diffDays = Math.floor((now - startDate) / (1000 * 60 * 60 * 24));
-                title = "纪念日快乐！";
-                message = `相伴至今`;
-            }
-
-            DOMElements.anniversaryAnimation.title.textContent = title;
+            DOMElements.anniversaryAnimation.title.textContent = isCountdown ? '倒数日' : '纪念日快乐！';
             DOMElements.anniversaryAnimation.days.textContent = diffDays;
-            DOMElements.anniversaryAnimation.message.textContent = message;
-
+            DOMElements.anniversaryAnimation.message.textContent = isCountdown
+                ? `「${anniversary.name}」即将到来`
+                : `「${anniversary.name}」 · 我们已经相伴了这么多天`;
             DOMElements.anniversaryAnimation.modal.classList.add('active');
         }
+
+        function showNextAnniversaryCelebration() {
+            if (anniversaryCelebrationShowing || anniversaryCelebrationQueue.length === 0) return;
+            const next = anniversaryCelebrationQueue.shift();
+            anniversaryCelebrationShowing = true;
+            showAnniversaryAnimation(next);
+        }
+
+        window.closeAnniversaryCelebration = function() {
+            if (DOMElements.anniversaryAnimation.modal) {
+                DOMElements.anniversaryAnimation.modal.classList.remove('active');
+            }
+            anniversaryCelebrationShowing = false;
+            setTimeout(showNextAnniversaryCelebration, 350);
+        };
+
+        window.checkAnniversaryCelebrations = function() {
+            if (!Array.isArray(anniversaries) || anniversaries.length === 0) return;
+            const today = new Date();
+            const dateKey = [
+                today.getFullYear(),
+                String(today.getMonth() + 1).padStart(2, '0'),
+                String(today.getDate()).padStart(2, '0')
+            ].join('-');
+
+            anniversaries.forEach(anniversary => {
+                if (!anniversary || anniversary.type === 'countdown') return;
+                const startDate = parseAnniversaryDate(anniversary.date);
+                if (!startDate || startDate > today) return;
+                if (startDate.getMonth() !== today.getMonth() || startDate.getDate() !== today.getDate()) return;
+
+                const markerKey = getStorageKey(`anniversaryCelebrated_${anniversary.id}_${dateKey}`);
+                if (safeGetItem(markerKey) === '1') return;
+                if (anniversaryCelebrationQueue.some(item => item.id === anniversary.id)) return;
+
+                safeSetItem(markerKey, '1');
+                anniversaryCelebrationQueue.push(anniversary);
+            });
+
+            showNextAnniversaryCelebration();
+        };
+
+        window.showAnniversaryAnimation = showAnniversaryAnimation;
 
         function updateAnniversaryDisplay(dateString) {
             if (!dateString) return;
