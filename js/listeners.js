@@ -1389,7 +1389,11 @@ if (_cancelEnvEl) _cancelEnvEl.addEventListener('click', () => {
 
             
             DOMElements.anniversaryAnimation.closeBtn.addEventListener('click', () => {
-                DOMElements.anniversaryAnimation.modal.classList.remove('active');
+                if (typeof window.closeAnniversaryCelebration === 'function') {
+                    window.closeAnniversaryCelebration();
+                } else {
+                    DOMElements.anniversaryAnimation.modal.classList.remove('active');
+                }
             });
 
 
