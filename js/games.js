@@ -1,19 +1,29 @@
 function renderStatsContent() {
             const statsContent = DOMElements.statsModal.content;
 
-            const partnerMessages = messages.filter(msg =>
-                msg.sender !== 'user' && msg.sender !== null &&
-                msg.text &&
-                msg.type !== 'system'
-            );
-            
-            const myMessages = messages.filter(msg =>
-                msg.sender === 'user' &&
-                msg.text &&
-                msg.type !== 'system'
-            );
+            const partnerCounts = new Map();
+            const myCounts = new Map();
+            let partnerCount = 0;
+            let myCount = 0;
+            let firstTimestamp = null;
+            let lastTimestamp = null;
 
-            if (partnerMessages.length === 0 && myMessages.length === 0) {
+            messages.forEach(msg => {
+                if (msg.timestamp) {
+                    if (firstTimestamp === null) firstTimestamp = msg.timestamp;
+                    lastTimestamp = msg.timestamp;
+                }
+                if (!msg.text || msg.type === 'system' || msg.sender === null) return;
+                const text = String(msg.text).trim();
+                if (!text) return;
+                const isMine = msg.sender === 'user';
+                const target = isMine ? myCounts : partnerCounts;
+                target.set(text, (target.get(text) || 0) + 1);
+                if (isMine) myCount += 1;
+                else partnerCount += 1;
+            });
+
+            if (partnerCount === 0 && myCount === 0) {
                 statsContent.innerHTML = `
                     <div class="stats-empty-state">
                         <div class="stats-empty-icon"><i class="fas fa-chart-pie"></i></div>
@@ -23,43 +33,48 @@ function renderStatsContent() {
                 return;
             }
 
-            const getTopReplies = (msgs) => {
-                const countMap = {};
-                msgs.forEach(msg => {
-                    const text = msg.text.trim();
-                    if (text) {
-                        countMap[text] = (countMap[text] || 0) + 1;
-                    }
+            const getTopReplies = (countMap) => {
+                const top = [];
+                countMap.forEach((count, text) => {
+                    const item = { text, count };
+                    let insertAt = top.findIndex(entry => count > entry.count);
+                    if (insertAt === -1) insertAt = top.length;
+                    top.splice(insertAt, 0, item);
+                    if (top.length > 5) top.pop();
                 });
-                return Object.entries(countMap)
-                    .map(([text, count]) => ({ text, count }))
-                    .sort((a, b) => b.count - a.count)
-                    .slice(0, 5); 
+                return top;
             };
 
-            const partnerTop = getTopReplies(partnerMessages);
-            const myTop = getTopReplies(myMessages);
+            const partnerTop = getTopReplies(partnerCounts);
+            const myTop = getTopReplies(myCounts);
+
+            const escapeStatsText = (value) => String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
 
             const generateRankHTML = (list) => {
                 if (list.length === 0) return '<div style="text-align:center;color:var(--text-secondary);font-size:12px;padding:10px;">暂无数据</div>';
                 const maxVal = list[0].count;
                 return list.map((item, index) => {
                     const percent = (item.count / maxVal) * 100;
+                    const safeText = escapeStatsText(item.text);
                     return `
                     <div class="rank-item">
                         <div class="rank-progress-bg" style="width: ${percent}%; opacity: 0.1; background-color: var(--text-primary);"></div>
                         <div class="rank-info">
                             <div class="rank-number">#${index + 1}</div>
-                            <div class="rank-text" title="${item.text}">${item.text}</div>
+                            <div class="rank-text" title="${safeText}">${safeText}</div>
                             <div class="rank-count">${item.count}次</div>
                         </div>
                     </div>`;
                 }).join('');
             };
 
-            const allMsgs = messages.filter(m => m.timestamp);
-            const firstMsg = allMsgs.length > 0 ? allMsgs[0] : { timestamp: new Date() };
-            const lastMsg = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1] : { timestamp: new Date() };
+            const firstMsg = { timestamp: firstTimestamp || new Date() };
+            const lastMsg = { timestamp: lastTimestamp || new Date() };
 
             const formatDate = (dateObj) => {
                 return new Date(dateObj).toLocaleDateString('zh-CN', {
@@ -76,11 +91,11 @@ function renderStatsContent() {
                         </div>
                         <div class="overview-row-two">
                             <div class="overview-item">
-                                <div class="overview-value">${myMessages.length}</div>
+                                <div class="overview-value">${myCount}</div>
                                 <div class="overview-label">我发送的</div>
                             </div>
                             <div class="overview-item">
-                                <div class="overview-value">${partnerMessages.length}</div>
+                                <div class="overview-value">${partnerCount}</div>
                                 <div class="overview-label">对方发送的</div>
                             </div>
                         </div>
@@ -1470,10 +1485,9 @@ function initComboMenu() {
         return words;
     }
 
-    function mergeFreq(a, b) {
-        var o = Object.assign({}, a);
-        Object.keys(b).forEach(function(k) { o[k] = (o[k] || 0) + b[k]; });
-        return o;
+    function mergeFreq(target, source) {
+        Object.keys(source).forEach(function(k) { target[k] = (target[k] || 0) + source[k]; });
+        return target;
     }
 
     function topWords(freq, n) {
@@ -1632,13 +1646,26 @@ function initComboMenu() {
         var pName = (typeof settings !== 'undefined' && settings.partnerName) ? settings.partnerName : '对方';
         var mName = (typeof settings !== 'undefined' && settings.myName)      ? settings.myName      : '我';
 
-        var partnerMsgs = messages.filter(function(m) { return m.sender !== 'user' && m.text && m.type !== 'system' && m.type !== 'call-event'; });
-        var myMsgs      = messages.filter(function(m) { return m.sender === 'user' && m.text && m.type !== 'system' && m.type !== 'call-event'; });
+        var WORDCLOUD_SAMPLE_LIMIT = 12000;
+        var partnerMsgs = [], myMsgs = [];
+        var partnerTotal = 0, myTotal = 0, sampled = 0;
+        for (var mi = messages.length - 1; mi >= 0; mi--) {
+            var msg = messages[mi];
+            if (!msg || !msg.text || msg.type === 'system' || msg.type === 'call-event') continue;
+            if (msg.sender === 'user') myTotal += 1;
+            else partnerTotal += 1;
+            if (sampled >= WORDCLOUD_SAMPLE_LIMIT) continue;
+            if (msg.sender === 'user') myMsgs.push(msg);
+            else partnerMsgs.push(msg);
+            sampled += 1;
+        }
 
         var pFreq = {}, mFreq = {};
-        partnerMsgs.forEach(function(m) { pFreq = mergeFreq(pFreq, tokenize(m.text)); });
-        myMsgs.forEach(function(m)      { mFreq = mergeFreq(mFreq, tokenize(m.text)); });
-        var aFreq = mergeFreq(pFreq, mFreq);
+        partnerMsgs.forEach(function(m) { mergeFreq(pFreq, tokenize(String(m.text))); });
+        myMsgs.forEach(function(m)      { mergeFreq(mFreq, tokenize(String(m.text))); });
+        var aFreq = {};
+        mergeFreq(aFreq, pFreq);
+        mergeFreq(aFreq, mFreq);
 
         var pTop = topWords(pFreq, 60);
         var mTop = topWords(mFreq, 60);
@@ -1647,9 +1674,9 @@ function initComboMenu() {
         var cur = container._currentView || 'all';
 
         function data(v) {
-            if (v === 'partner') return { words: pTop, total: partnerMsgs.length };
-            if (v === 'me')      return { words: mTop, total: myMsgs.length };
-            return { words: aTop, total: partnerMsgs.length + myMsgs.length };
+            if (v === 'partner') return { words: pTop, total: partnerTotal };
+            if (v === 'me')      return { words: mTop, total: myTotal };
+            return { words: aTop, total: partnerTotal + myTotal };
         }
 
         function renderRank(words) {
@@ -1681,7 +1708,10 @@ function initComboMenu() {
             if (!el) return;
             el.innerHTML =
                 '<span class="wc-summary-pill"><i class="fas fa-comment-dots"></i> ' + d.total + ' 条</span>'
-                + '<span class="wc-summary-pill"><i class="fas fa-font"></i> ' + d.words.length + ' 词</span>';
+                + '<span class="wc-summary-pill"><i class="fas fa-font"></i> ' + d.words.length + ' 词</span>'
+                + ((partnerTotal + myTotal) > WORDCLOUD_SAMPLE_LIMIT
+                    ? '<span class="wc-summary-pill"><i class="fas fa-bolt"></i> 词云取最近 ' + WORDCLOUD_SAMPLE_LIMIT + ' 条</span>'
+                    : '');
         }
 
         function renderView(v) {
