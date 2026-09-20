@@ -80,7 +80,12 @@
         let text = configured() ? '已配置，尚未登录' : '尚未连接';
         try {
             const user = await currentUser();
-            if (user) text = `已登录 ${user.email || ''} · ${window.MilkSafeSync?.statusText() || '增量同步待启动'}`;
+            if (user) {
+                const syncState = window.MilkSafeSync?.statusText() || '已连接';
+                if (inline) inline.textContent = syncState;
+                if (modalStatus) modalStatus.textContent = `已登录 ${user.email || ''} · ${syncState}`;
+                return;
+            }
         } catch (e) {}
         if (inline) inline.textContent = text;
         if (modalStatus) modalStatus.textContent = text;
