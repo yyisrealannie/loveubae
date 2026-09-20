@@ -617,6 +617,7 @@ const saveData = async () => {
     }
 
     _backupCriticalData();
+    try { window.MilkMoments?.scheduleLibrarySync?.(); } catch (e) { console.warn('[moments] 字卡库跟随更新失败:', e); }
     if (failed.length) throw new Error('本机有 '+failed.length+' 项写入失败：'+failed.join(', '));
 };
 
