@@ -23,7 +23,7 @@ python3 -m http.server 8080
 1. 新建 Supabase 项目。
 2. 打开 SQL Editor，运行 [`supabase/schema.sql`](supabase/schema.sql)。
 3. 在 Authentication 中启用 Email/Password 登录。
-4. 当前个人版已经预填 Supabase Project URL 和 publishable key；打开“设置 → 数据管理 → Supabase 同步”后直接注册或登录即可。
+4. 当前个人版已经预填 Supabase Project URL 和 publishable key；打开“设置 → 数据管理 → Supabase 同步”后直接注册或登录即可。忘记密码时可在同一界面发送重置邮件，打开邮件链接后回到网站设置新密码。
 5. 注册/登录后即可上传当前数据，或在另一台设备恢复。
 
 Project URL 和 publishable key 属于可公开的前端配置，已写入个人版源码；仓库中不包含 `service_role` 私钥。数据表启用了 RLS，每个账户只能读写自己的备份。

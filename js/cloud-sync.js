@@ -14,6 +14,17 @@
     let client = null;
     let autoTimer = null;
 
+    function friendlyAuthError(error) {
+        const message = String((error && error.message) || '请稍后重试');
+        if (/invalid login credentials/i.test(message)) {
+            return '邮箱或密码不正确；如果这个邮箱以前注册过，请点“忘记密码”';
+        }
+        if (/email not confirmed/i.test(message)) {
+            return '邮箱尚未确认，请点“重新发送验证邮件”并打开最新邮件';
+        }
+        return message;
+    }
+
     function esc(value) {
         return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -43,6 +54,11 @@
             publishableKey(),
             { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
         );
+        client.auth.onAuthStateChange(event => {
+            if (event !== 'PASSWORD_RECOVERY') return;
+            // Keep the auth callback synchronous; render the recovery UI afterwards.
+            setTimeout(() => openRecoveryPanel(), 0);
+        });
         return client;
     }
 
@@ -93,6 +109,16 @@
                 </div>
                 <div class="cloud-sync-actions">
                     <button class="modal-btn modal-btn-secondary" id="cloud-sync-resend">重新发送验证邮件</button>
+                    <button class="modal-btn modal-btn-secondary" id="cloud-sync-forgot">忘记密码</button>
+                </div>
+                <div id="cloud-sync-recovery" hidden>
+                    <div class="cloud-sync-divider">设置新密码</div>
+                    <div class="cloud-sync-note">重置链接已验证。请输入一个没有在其他网站使用过的新密码。</div>
+                    <input class="modal-input" id="cloud-sync-new-password" type="password" autocomplete="new-password" placeholder="新密码（至少 8 位）">
+                    <input class="modal-input" id="cloud-sync-confirm-password" type="password" autocomplete="new-password" placeholder="再次输入新密码">
+                    <div class="cloud-sync-actions">
+                        <button class="modal-btn modal-btn-primary" id="cloud-sync-set-password">保存新密码</button>
+                    </div>
                 </div>
                 <div class="cloud-sync-actions">
                     <button class="modal-btn modal-btn-secondary" id="cloud-sync-download"><i class="fas fa-cloud-arrow-down"></i> 合并云端记录（不覆盖）</button>
@@ -137,11 +163,17 @@
                     })
                     : await c.auth.signInWithPassword(credentials);
                 if (result.error) throw result.error;
-                showNotification(mode === 'signup' ? '注册成功；如开启邮箱验证，请先查收邮件' : '登录成功', 'success', 3500);
+                if (mode === 'signup' && result.data?.user && !result.data.session &&
+                    Array.isArray(result.data.user.identities) && result.data.user.identities.length === 0) {
+                    showNotification('这个邮箱可能已经注册过，请直接登录或点“忘记密码”', 'info', 5500);
+                    return;
+                }
+                password.value = '';
+                showNotification(mode === 'signup' ? '注册请求已提交；请查收验证邮件' : '登录成功', 'success', 3500);
                 await refreshStatus();
                 scheduleAutoSync();
             } catch (e) {
-                showNotification('连接失败：' + (e.message || '请检查配置'), 'error', 5000);
+                showNotification('连接失败：' + friendlyAuthError(e), 'error', 6000);
             }
         }
 
@@ -163,6 +195,39 @@
                 showNotification('发送失败：' + (e.message || '请稍后重试'), 'error', 5000);
             }
         });
+        modal.querySelector('#cloud-sync-forgot').addEventListener('click', async () => {
+            try {
+                const c = saveConfig();
+                const targetEmail = email.value.trim();
+                if (!targetEmail) throw new Error('请先填写注册时使用的邮箱');
+                const result = await c.auth.resetPasswordForEmail(targetEmail, {
+                    redirectTo: appBaseUrl()
+                });
+                if (result.error) throw result.error;
+                showNotification('重置邮件已发送，请检查收件箱、垃圾邮件和“推广”分类，并打开最新一封', 'success', 7000);
+            } catch (e) {
+                showNotification('发送失败：' + friendlyAuthError(e), 'error', 6000);
+            }
+        });
+        modal.querySelector('#cloud-sync-set-password').addEventListener('click', async () => {
+            const nextPassword = modal.querySelector('#cloud-sync-new-password');
+            const confirmation = modal.querySelector('#cloud-sync-confirm-password');
+            try {
+                if (nextPassword.value.length < 8) throw new Error('新密码至少需要 8 位');
+                if (nextPassword.value !== confirmation.value) throw new Error('两次输入的新密码不一致');
+                const c = saveConfig();
+                const result = await c.auth.updateUser({ password: nextPassword.value });
+                if (result.error) throw result.error;
+                nextPassword.value = '';
+                confirmation.value = '';
+                modal.querySelector('#cloud-sync-recovery').hidden = true;
+                showNotification('新密码已保存，现在已登录', 'success', 5000);
+                await refreshStatus();
+                scheduleAutoSync();
+            } catch (e) {
+                showNotification('设置失败：' + friendlyAuthError(e), 'error', 6000);
+            }
+        });
         modal.querySelector('#cloud-sync-upload').addEventListener('click', upload);
         modal.querySelector('#cloud-sync-download').addEventListener('click', download);
         modal.querySelector('#cloud-sync-logout').addEventListener('click', async () => {
@@ -177,6 +242,15 @@
             scheduleAutoSync();
         });
         return modal;
+    }
+
+    function openRecoveryPanel() {
+        const modal = ensureModal();
+        modal.querySelector('#cloud-sync-recovery').hidden = false;
+        const status = modal.querySelector('#cloud-sync-status');
+        if (status) status.textContent = '重置链接已验证，请在下方设置新密码';
+        showModal(modal);
+        setTimeout(() => modal.querySelector('#cloud-sync-new-password')?.focus(), 50);
     }
 
     async function upload(options) {
