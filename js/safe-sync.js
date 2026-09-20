@@ -1,15 +1,17 @@
 (function () {
 'use strict';
 const TABLE='milk_safe_messages', PROFILES='milk_safe_profiles', MEDIA='milk-chat-media';
-let client=null, user=null, busy=null, merging=null, starting=null, lastOk=0, lastError='';
+let client=null, user=null, busy=null, merging=null, starting=null,
+ lastOk=Number(localStorage.getItem('milkSafeLastOk')||0), lastError='';
 let known=new Set(), queue=new Map();
 const device=(()=>{let d=localStorage.getItem('milkSafeDevice');if(!d){d=crypto.randomUUID();localStorage.setItem('milkSafeDevice',d)}return d})();
 const auto=()=>localStorage.getItem('milkCloudAutoSync')!=='false';
 const keyOf=m=>String(m.syncId||(device+':'+m.id));
 const check=r=>{if(r.error)throw r.error;return r.data};
 const hasMessages=()=>typeof messages!=='undefined'&&Array.isArray(messages);
-function statusText(){return (lastOk?'上次增量成功 '+new Date(lastOk).toLocaleString('zh-CN'):'尚未成功上传')
- +(queue.size?' · 待上传 '+queue.size+' 条':'')+(lastError?' · ⚠️ '+lastError.slice(0,70):'')}
+function markOk(){lastOk=Date.now();localStorage.setItem('milkSafeLastOk',String(lastOk));status()}
+function statusText(){return (queue.size?'正在同步 '+queue.size+' 条':lastOk?'已同步':'已连接')
+ +(lastError?' · ⚠️ '+lastError.slice(0,70):'')}
 function status(){if(!user)return;for(const id of ['cloud-sync-inline-status','cloud-sync-status']){const e=document.getElementById(id);if(e)e.textContent=statusText()}}
 function report(e){lastError=e?.message||String(e);console.warn('[safe-sync]',e);status()}
 async function connect(){
@@ -63,7 +65,7 @@ async function flush(force=false){
   let sent=0,attempted=0;
   for(const [k,m] of queue){
    if(attempted++>=(force?400:50))break;
-   try{await sendOne(k,m);sent++;lastOk=Date.now();lastError=''}
+   try{await sendOne(k,m);sent++;lastError='';markOk()}
    catch(e){report(e);if(!/图片|过大|不支持|附件/.test(lastError))break}
   }
   if(sent)await saveKnown();status();return {sent,pending:queue.size,error:lastError}
@@ -148,7 +150,7 @@ async function start(){
  if(starting)return starting;
  starting=(async()=>{
   if(!await connect())return;
-  try{await restoreProfileIfEmpty();await mergeRemote();await flush();await syncProfile()}
+  try{await restoreProfileIfEmpty();await mergeRemote();await flush();await syncProfile();markOk()}
   catch(e){report(e)}
  })().finally(()=>{starting=null});
  return starting
