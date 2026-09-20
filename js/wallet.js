@@ -31,12 +31,11 @@
     function ensurePanel() {
         if (panel) return panel;
         panel = document.createElement('section');
-        panel.className = 'wallet-panel'; panel.id = 'wallet-panel'; panel.setAttribute('aria-label','模拟红包与转账');
+        panel.className = 'wallet-panel'; panel.id = 'wallet-panel'; panel.setAttribute('aria-label','红包与转账');
         panel.innerHTML = `<div class="wallet-shell">
             <div class="wallet-panel-header"><button type="button" id="wallet-close" aria-label="返回聊天">←</button><span>红包与转账</span></div>
-            <p class="wallet-note">这是只用于你们聊天的模拟余额，没有真实支付、充值或提现。</p>
             <div class="wallet-balances"><div>我的余额<strong id="wallet-self">—</strong></div><div>他的余额<strong id="wallet-partner">—</strong></div></div>
-            <div id="wallet-login-note" class="wallet-box" hidden><p>先登录网站里的 Supabase 账号，才能保存红包和余额。</p><button type="button" id="wallet-login">去登录</button></div>
+            <div id="wallet-login-note" class="wallet-box" hidden><p>登录后即可使用红包与转账。</p><button type="button" id="wallet-login">去登录</button></div>
             <div id="wallet-main" class="wallet-box" hidden>
                 <strong>发给他</strong>
                 <label>形式<select id="wallet-kind"><option value="redpacket">红包</option><option value="transfer">转账</option></select></label>
@@ -44,10 +43,8 @@
                 <div class="wallet-row"><button type="button" id="wallet-random">随机金额</button><button type="button" id="wallet-card-text">从字卡选文案</button></div>
                 <label>转账文案<textarea id="wallet-caption" maxlength="280" placeholder="写点想说的话，也可以从字卡挑选"></textarea></label>
                 <div class="wallet-row"><button type="button" id="wallet-send" class="wallet-primary">发给他</button></div>
-                <p class="wallet-note">发出即从你的余额扣除，他会在 0–3 分钟内随机领取。你收到他的红包时，点聊天卡片上的“领取”。</p>
             </div>
-            <details class="wallet-box" id="wallet-controls" hidden style="margin-top:12px"><summary>调整我们的模拟余额</summary>
-                <p class="wallet-note">可给任一方增加或减少金额；不能减至负数。每月会自动给双方各加 ¥10,000。</p>
+            <details class="wallet-box" id="wallet-controls" hidden style="margin-top:12px"><summary>调整余额</summary>
                 <label>调整谁的余额<select id="wallet-side"><option value="self">我的</option><option value="partner">他的</option></select></label>
                 <label>操作<select id="wallet-operation"><option value="plus">增加</option><option value="minus">减少</option></select></label>
                 <label>金额（元）<input id="wallet-adjust-amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="例如 100.00"></label>
@@ -141,12 +138,12 @@
             const amount = cents(byId('wallet-amount').value);
             const kind = byId('wallet-kind').value;
             const caption = byId('wallet-caption').value.trim().slice(0,280);
-            if (!window.confirm(`确定把 ${format(amount)} 的${kind==='redpacket'?'模拟红包':'模拟转账'}发给他吗？发出后不能撤销。`)) return;
+            if (!window.confirm(`确定把 ${format(amount)} 的${kind==='redpacket'?'红包':'转账'}发给他吗？`)) return;
             btn.disabled = true;
             check(await client.rpc('milk_wallet_send',{p_amount_cents:amount,p_kind:kind,p_caption:caption}));
             byId('wallet-amount').value = ''; byId('wallet-caption').value = '';
             await refresh(); panel.classList.remove('open');
-            toast('已发出，他会在 3 分钟内领取','success');
+            toast('已发出','success');
         } catch (e) { toast(e.message || String(e),'error'); }
         finally { btn.disabled = false; }
     }
@@ -155,7 +152,7 @@
             if (!await session()) throw new Error('请先登录');
             const received = check(await client.rpc('milk_wallet_claim',{p_transfer_id:id}));
             await refresh();
-            toast(received ? '领取成功，已经存入你的模拟余额' : '已经领过这笔了','success');
+            toast(received ? '领取成功，已经存入你的余额' : '已经领过这笔了','success');
         } catch (e) { toast(e.message || String(e),'error'); }
     }
     async function loadAdjustments() {
@@ -174,7 +171,7 @@
             const amount = cents(byId('wallet-adjust-amount').value);
             const side = byId('wallet-side').value;
             const delta = byId('wallet-operation').value === 'minus' ? -amount : amount;
-            if (!window.confirm(`确定将${side==='self'?'我的':'他的'}模拟余额${delta>0?'增加':'减少'} ${format(amount)} 吗？`)) return;
+            if (!window.confirm(`确定将${side==='self'?'我的':'他的'}余额${delta>0?'增加':'减少'} ${format(amount)} 吗？`)) return;
             btn.disabled = true;
             check(await client.rpc('milk_wallet_adjust',{p_side:side,p_delta_cents:delta}));
             byId('wallet-adjust-amount').value = '';
