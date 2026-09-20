@@ -2,6 +2,7 @@
   'use strict';
   const bucket = 'milk-moments';
   let db, user, config, posts = [], comments = [], media = [], tab = 'feed', screen;
+  let libraryReady = false, librarySyncTimer = null, librarySyncPromise = null;
   const urlCache = new Map();
   const $ = (selector, root = screen) => root.querySelector(selector);
   function node(tag, className, text) {
@@ -43,6 +44,9 @@
     return Array.isArray(source) ? [...new Set(source.filter(x => typeof x === 'string' && !disabled.has(x) && !disabledGroups.has(x)).map(x => x.trim().slice(0, 1000)).filter(Boolean))].slice(0, 500) : [];
   }
   async function syncCards() {
+    if (!db || !user) return 0;
+    if (librarySyncPromise) return librarySyncPromise;
+    librarySyncPromise = (async () => {
     const cards = myCards();
     const partnerName = (document.getElementById('partner-name')?.textContent || '他').trim().slice(0, 80) || '他';
     const values = { cards, partner_name: partnerName, updated_at: new Date().toISOString() };
@@ -51,7 +55,15 @@
     } else if (JSON.stringify(config.cards) !== JSON.stringify(cards) || config.partner_name !== partnerName) {
       config = await checked(db.from('milk_moments_config').update(values).eq('user_id', user.id).select().single());
     }
-    return cards.length;
+      return cards.length;
+    })();
+    try { return await librarySyncPromise; }
+    finally { librarySyncPromise = null; }
+  }
+  function scheduleLibrarySync() {
+    if (!libraryReady || !db || !user) return;
+    clearTimeout(librarySyncTimer);
+    librarySyncTimer = setTimeout(() => syncCards().catch(error => console.warn('[moments] 字卡库自动更新失败:', error)), 1200);
   }
   async function refresh() {
     [config, media, posts] = await Promise.all([
@@ -87,6 +99,75 @@
     media.filter(x => x.kind === kind).forEach(x => select.append(new Option(`${kind === 'photo' ? '照片' : '表情包'} · ${new Date(x.created_at).toLocaleDateString()}`, x.id)));
     return select;
   }
+  function stickerPicker() {
+    const picker = node('div', 'moments-sticker-picker');
+    picker.dataset.value = '';
+    Object.defineProperty(picker, 'value', { get: () => picker.dataset.value || '' });
+    const choose = (choice, value) => {
+      picker.querySelectorAll('.moments-sticker-choice').forEach(item => item.classList.remove('selected'));
+      choice.classList.add('selected');
+      picker.dataset.value = value;
+    };
+    const empty = button('无', () => choose(empty, ''));
+    empty.className = 'moments-sticker-choice selected moments-sticker-none';
+    empty.title = '不使用表情包';
+    picker.append(empty);
+
+    media.filter(item => item.kind === 'sticker').forEach(item => {
+      const choice = button('', () => choose(choice, item.id));
+      choice.className = 'moments-sticker-choice';
+      choice.title = '私密图库表情';
+      imageFor(item.id).then(url => {
+        if (!url || !choice.isConnected) return;
+        const img = node('img'); img.src = url; img.alt = '表情包'; choice.append(img);
+      }).catch(() => choice.remove());
+      picker.append(choice);
+    });
+
+    const chatStickers = typeof myStickerLibrary !== 'undefined' && Array.isArray(myStickerLibrary) ? myStickerLibrary : [];
+    chatStickers.forEach((source, index) => {
+      const choice = button('', () => choose(choice, `chat:${index}`));
+      choice.className = 'moments-sticker-choice';
+      choice.title = `我的表情 ${index + 1}`;
+      const img = node('img'); img.src = source; img.alt = `我的表情 ${index + 1}`; choice.append(img);
+      picker.append(choice);
+    });
+    return picker;
+  }
+  async function resolveSticker(selection) {
+    if (!selection || !selection.startsWith('chat:')) return selection || null;
+    const index = Number(selection.slice(5));
+    const chatStickers = typeof myStickerLibrary !== 'undefined' && Array.isArray(myStickerLibrary) ? myStickerLibrary : [];
+    const source = chatStickers[index];
+    if (!source) throw new Error('这张表情已不存在，请重新选择');
+
+    const blob = await fetch(source).then(response => {
+      if (!response.ok) throw new Error('读取表情失败');
+      return response.blob();
+    });
+    if (blob.size > 8 * 1024 * 1024) throw new Error('这张表情超过 8 MB，无法发送');
+    const mime = ['image/jpeg','image/png','image/webp','image/gif'].includes(blob.type) ? blob.type : 'image/png';
+    const extension = { 'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif' }[mime];
+    const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+    const hash = Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const objectPath = `${user.id}/chat-self-${hash.slice(0, 32)}.${extension}`;
+
+    let item = media.find(entry => entry.object_path === objectPath);
+    if (!item) {
+      item = await checked(db.from('milk_moments_media').select('*').eq('user_id', user.id).eq('object_path', objectPath).maybeSingle());
+    }
+    if (!item) {
+      await checked(db.storage.from(bucket).upload(objectPath, blob, { contentType: mime, upsert: false }));
+      try {
+        item = await checked(db.from('milk_moments_media').insert({ user_id: user.id, object_path: objectPath, kind: 'sticker', allow_auto: false }).select().single());
+      } catch (error) {
+        await db.storage.from(bucket).remove([objectPath]);
+        throw error;
+      }
+    }
+    if (!media.some(entry => entry.id === item.id)) media.unshift(item);
+    return item.id;
+  }
   function renderShell() {
     const root = body(); root.replaceChildren();
     root.append(row(button('动态', () => { tab = 'feed'; renderShell(); }), button('私密图库', () => { tab = 'gallery'; renderShell(); }), button('刷新', async () => {
@@ -103,13 +184,6 @@
     await refresh(); renderShell();
   }
   function renderFeed(root) {
-    if (!config?.cards?.length) root.append(note('还没有同步可用字卡。他的动态和评论会从你的字卡库挑选；先在聊天页添加字卡，然后点“同步字卡”。你仍然可以先发自己的动态。'));
-    root.append(row(button('同步字卡', async () => {
-      try {
-        if (!myCards().length && config?.cards?.length && !window.confirm('这台设备暂无字卡。继续会清空云端动态的字卡池，确定吗？')) return;
-        const count = await syncCards(); window.alert(`已同步 ${count} 条可用字卡；不上传整站聊天备份。`); renderShell();
-      } catch (e) { alertError(e); }
-    }), note('他约每周发 1 条、偶尔 2 条；你发帖后，他会在约 2–9 分钟内评论。关闭网页也会继续。')));
     const compose = node('div', 'moments-card');
     const text = field('textarea', '记下今天想说的话…'); const photo = selector('photo');
     compose.append(node('div', 'moments-person', '写一条动态'), text, row(photo, button('发表', async () => {
@@ -138,11 +212,12 @@
         card.append(entry);
       }
       const commentText = field('input', '写评论或回复…'); commentText.maxLength = 1000;
-      const sticker = selector('sticker');
+      const sticker = stickerPicker();
       const send = async () => {
         if (!commentText.value.trim() && !sticker.value) return;
         try {
-          await checked(db.from('milk_moments_comments').insert({ user_id: user.id, post_id: post.id, author: 'self', body: commentText.value.trim(), media_id: sticker.value || null }));
+          const mediaId = await resolveSticker(sticker.value);
+          await checked(db.from('milk_moments_comments').insert({ user_id: user.id, post_id: post.id, author: 'self', body: commentText.value.trim(), media_id: mediaId }));
           await refresh(); renderShell();
         } catch (e) { alertError(e); }
       };
@@ -201,9 +276,10 @@
       await refresh();
       // 新设备没有本地字卡时保留云端池，不会因为打开页面而清空它。
       if (myCards().length || !config) await syncCards();
+      libraryReady = true;
       renderShell();
     } catch (e) { body().replaceChildren(note('打开失败：' + errorText(e))); }
   }
   document.addEventListener('DOMContentLoaded', () => document.getElementById('moments-open')?.addEventListener('click', open));
-  window.MilkMoments = { open };
+  window.MilkMoments = { open, scheduleLibrarySync };
 })();
