@@ -533,7 +533,7 @@ async function importAllData(file) {
             },
             {
                 id: 'dg',
-                label: '每日公告 / 运势 / 天气',
+                label: '每日小卡 / 状态 / 天气',
                 indexedDBNeedles: [],
                 localStorageNeedles: ['dg_custom_data', 'dg_status_pool', 'weekly_fortune', 'daily_fortune'],
                 localStoragePrefixes: ['customWeather_']
