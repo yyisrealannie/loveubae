@@ -10,6 +10,16 @@
             || window.matchMedia('(display-mode: standalone)').matches;
     }
 
+    function isIOS() {
+        return /iPad|iPhone|iPod/.test(navigator.userAgent)
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+
+    function iosVersion() {
+        const match = navigator.userAgent.match(/OS (\d+)[._](\d+)/);
+        return match ? Number(match[1]) + Number(match[2]) / 10 : null;
+    }
+
     function base64UrlToBytes(value) {
         const padding = '='.repeat((4 - value.length % 4) % 4);
         const raw = atob((value + padding).replace(/-/g, '+').replace(/_/g, '/'));
@@ -24,7 +34,9 @@
             disable: document.getElementById('sleep-push-disable'),
             hours: document.getElementById('sleep-push-hours'),
             hoursValue: document.getElementById('sleep-push-hours-value'),
-            frequency: document.getElementById('sleep-push-frequency')
+            frequency: document.getElementById('sleep-push-frequency'),
+            interval: document.getElementById('sleep-push-interval'),
+            intervalValue: document.getElementById('sleep-push-interval-value')
         };
     }
 
@@ -47,6 +59,27 @@
         refreshStatus();
     }
 
+    function setPushInterval(value, options) {
+        const minutes = Math.max(1, Math.min(120, Math.round(Number(value) || 5)));
+        try {
+            if (typeof settings !== 'undefined') settings.autoSendInterval = minutes;
+        } catch (e) {}
+        const dataSlider = document.getElementById('sleep-push-interval');
+        const dataValue = document.getElementById('sleep-push-interval-value');
+        const chatSlider = document.getElementById('auto-send-slider');
+        const chatValue = document.getElementById('auto-send-value');
+        if (dataSlider) dataSlider.value = String(minutes);
+        if (dataValue) dataValue.textContent = minutes + '分钟';
+        if (chatSlider) chatSlider.value = String(minutes);
+        if (chatValue) chatValue.textContent = minutes + '分钟';
+        refreshStatus();
+        if (!options || options.persist !== false) {
+            if (typeof manageAutoSendTimer === 'function') manageAutoSendTimer();
+            if (typeof throttledSaveData === 'function') throttledSaveData();
+            syncProfile({ quiet: true, reschedule: true });
+        }
+    }
+
     function localExpiry() {
         return Number(localStorage.getItem(ACTIVE_UNTIL_KEY) || 0);
     }
@@ -63,18 +96,23 @@
         const hours = selectedHours();
         if (el.hours) el.hours.value = String(hours);
         if (el.hoursValue) el.hoursValue.textContent = hours + '小时';
+        if (el.interval) el.interval.value = String(intervalMinutes());
+        if (el.intervalValue) el.intervalValue.textContent = intervalMinutes() + '分钟';
         if (el.frequency) el.frequency.textContent = '后台生成后立即推送 · 当前每 ' + intervalMinutes() + ' 分钟一条';
         const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
         const expiry = localExpiry();
-        if (!supported) {
-            el.text.textContent = '当前系统不支持 Web Push';
-            el.button.textContent = '不可用';
+        if (isIOS() && !isStandalone()) {
+            el.text.textContent = '请用 Safari 添加到主屏幕，再从桌面图标打开';
+            el.button.textContent = '待安装';
             el.button.disabled = true;
             if (el.test) el.test.disabled = true;
             if (el.disable) el.disable.disabled = true;
-        } else if (!isStandalone()) {
-            el.text.textContent = '请先用 Safari“添加到主屏幕”，再从桌面打开';
-            el.button.textContent = '待安装';
+        } else if (!supported) {
+            const version = isIOS() ? iosVersion() : null;
+            el.text.textContent = version && version < 16.4
+                ? '需要升级到 iOS 16.4 或更高版本'
+                : '当前浏览器不支持系统推送，请换 Safari 或更新浏览器';
+            el.button.textContent = '不可用';
             el.button.disabled = true;
             if (el.test) el.test.disabled = true;
             if (el.disable) el.disable.disabled = true;
@@ -124,6 +162,9 @@
 
     async function currentSubscription(createIfMissing) {
         const registration = await navigator.serviceWorker.ready;
+        if (createIfMissing) {
+            try { await registration.update(); } catch (e) {}
+        }
         let subscription = await registration.pushManager.getSubscription();
         if (subscription && createIfMissing && subscription.options && subscription.options.applicationServerKey) {
             const savedKey = new Uint8Array(subscription.options.applicationServerKey);
@@ -146,7 +187,10 @@
 
     async function enable() {
         try {
-            if (!isStandalone()) throw new Error('请先用 Safari 把网站添加到主屏幕，并从桌面图标打开');
+            if (isIOS() && !isStandalone()) throw new Error('请先用 Safari 把网站添加到主屏幕，并从桌面图标打开');
+            if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+                throw new Error('当前浏览器无法创建系统推送，请更新系统或改用 Safari');
+            }
             const identity = await cloudIdentity();
             if (replyPool().length === 0) throw new Error('字卡回复库为空，请先添加至少一条字卡');
             const permission = Notification.permission === 'granted'
@@ -193,13 +237,18 @@
             const identity = await cloudIdentity();
             const subscription = await currentSubscription(false);
             if (!subscription) return;
-            const result = await identity.client.from('milk_push_subscriptions').update({
+            const updates = {
                 partner_name: (typeof settings !== 'undefined' && settings.partnerName) || '对方',
                 privacy_mode: localStorage.getItem('notifPrivacyMode') || 'full',
                 reply_pool: replyPool(),
                 push_interval_minutes: intervalMinutes(),
                 updated_at: new Date().toISOString()
-            }).eq('user_id', identity.user.id).eq('endpoint', subscription.endpoint);
+            };
+            if (options && options.reschedule && localExpiry() > Date.now()) {
+                updates.next_push_at = new Date(Date.now() + intervalMinutes() * 60 * 1000).toISOString();
+            }
+            const result = await identity.client.from('milk_push_subscriptions').update(updates)
+                .eq('user_id', identity.user.id).eq('endpoint', subscription.endpoint);
             if (result.error) throw result.error;
         } catch (error) {
             if (!(options && options.quiet) && typeof showNotification === 'function') {
@@ -279,7 +328,7 @@
         } catch (e) {}
     }
 
-    window.SleepPush = { enable, disable, test, setDuration, refreshStatus, syncProfile, importPendingMessages };
+    window.SleepPush = { enable, disable, test, setDuration, setPushInterval, refreshStatus, syncProfile, importPendingMessages };
     document.addEventListener('DOMContentLoaded', function () {
         refreshStatus();
         setTimeout(importPendingMessages, 3500);
