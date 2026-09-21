@@ -275,7 +275,14 @@
     }
 
     async function download() {
+        const button = document.getElementById('cloud-sync-download');
+        const originalHtml = button && button.innerHTML;
         try {
+            if (button) {
+                button.disabled = true;
+                button.textContent = '正在检查云端…';
+            }
+            showNotification('正在检查云端记录…', 'info', 2500);
             if (!window.MilkSafeSync) throw new Error('安全同步模块未加载');
             const result = await window.MilkSafeSync.mergeRemote();
             showNotification(result.added
@@ -284,6 +291,11 @@
             await refreshStatus();
         } catch (e) {
             showNotification('合并失败：'+(e.message || '未知错误')+'；本机记录未清除', 'error', 6000);
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = originalHtml;
+            }
         }
     }
 
