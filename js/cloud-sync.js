@@ -14,6 +14,16 @@
     let client = null;
     let autoTimer = null;
 
+    // This is a single private app, not a generic Supabase client. Always repair
+    // stale values copied into the standalone iOS app or overwritten by password autofill.
+    function repairBuiltInConfig() {
+        try {
+            localStorage.setItem(KEYS.url, DEFAULT_CONFIG.url);
+            localStorage.setItem(KEYS.anon, DEFAULT_CONFIG.anon);
+        } catch (e) {}
+    }
+    repairBuiltInConfig();
+
     function friendlyAuthError(error) {
         const message = String((error && error.message) || '请稍后重试');
         if (/invalid login credentials/i.test(message)) {
@@ -31,11 +41,11 @@
     }
 
     function projectUrl() {
-        return localStorage.getItem(KEYS.url) || DEFAULT_CONFIG.url;
+        return DEFAULT_CONFIG.url;
     }
 
     function publishableKey() {
-        return localStorage.getItem(KEYS.anon) || DEFAULT_CONFIG.anon;
+        return DEFAULT_CONFIG.anon;
     }
 
     function appBaseUrl() {
@@ -101,8 +111,6 @@
             <div class="modal-content cloud-sync-card">
                 <div class="modal-title"><i class="fas fa-cloud"></i><span>跨设备同步</span></div>
                 <div class="cloud-sync-note">新消息按条追加上传；断网时会留在本机，恢复联网后重试。云端合并不会覆盖本机记录。</div>
-                <input class="modal-input" id="cloud-sync-url" inputmode="url" placeholder="Supabase Project URL">
-                <input class="modal-input" id="cloud-sync-anon" type="password" placeholder="Supabase anon key">
                 <div class="cloud-sync-divider">账户</div>
                 <input class="modal-input" id="cloud-sync-email" type="email" autocomplete="email" placeholder="邮箱">
                 <input class="modal-input" id="cloud-sync-password" type="password" autocomplete="current-password" placeholder="密码（至少 6 位）">
@@ -136,22 +144,13 @@
             </div>`;
         document.body.appendChild(modal);
 
-        const url = modal.querySelector('#cloud-sync-url');
-        const anon = modal.querySelector('#cloud-sync-anon');
         const email = modal.querySelector('#cloud-sync-email');
         const password = modal.querySelector('#cloud-sync-password');
         const auto = modal.querySelector('#cloud-sync-auto');
-        url.value = projectUrl();
-        anon.value = publishableKey();
         auto.checked = localStorage.getItem(KEYS.auto) !== 'false';
 
         function saveConfig() {
-            const nextUrl = url.value.trim().replace(/\/$/, '');
-            const nextAnon = anon.value.trim();
-            if (!nextUrl || !nextAnon) throw new Error('请先填写 Project URL 和 anon key');
-            if (!/^https:\/\//i.test(nextUrl)) throw new Error('Project URL 必须以 https:// 开头');
-            localStorage.setItem(KEYS.url, nextUrl);
-            localStorage.setItem(KEYS.anon, nextAnon);
+            repairBuiltInConfig();
             client = null;
             return getClient();
         }
