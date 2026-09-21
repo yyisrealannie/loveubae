@@ -10950,7 +10950,29 @@
     text-align: right;
 }
 
+.dm-push-interval-row .dm-row-info {
+    min-width: 0;
+}
+
+.dm-push-interval-row .dm-push-range {
+    width: min(100%, 330px);
+}
+
 @media (max-width: 430px) {
+    .dm-push-duration-row,
+    .dm-push-interval-row {
+        align-items: flex-start;
+    }
+
+    .dm-push-duration-row .dm-row-icon,
+    .dm-push-interval-row .dm-row-icon {
+        margin-top: 2px;
+    }
+
+    .dm-push-range input[type="range"] {
+        width: 100%;
+    }
+
     .dm-inline-select {
         max-width: 116px;
         font-size: 11px;
