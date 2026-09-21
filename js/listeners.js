@@ -1306,7 +1306,7 @@ autoSendSlider.addEventListener('change', () => {
     manageAutoSendTimer(); 
     throttledSaveData();
     if (window.SleepPush && typeof window.SleepPush.syncProfile === 'function') {
-        window.SleepPush.syncProfile({ quiet: true });
+        window.SleepPush.syncProfile({ quiet: true, reschedule: true });
     }
 });
 
