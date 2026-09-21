@@ -1,6 +1,9 @@
 (function () {
   'use strict';
   const bucket = 'milk-moments';
+  const TARGET_IMAGE_BYTES = 2 * 1024 * 1024;
+  const MAX_SOURCE_BYTES = 30 * 1024 * 1024;
+  const MAX_GIF_BYTES = 8 * 1024 * 1024;
   let db, user, config, posts = [], comments = [], media = [], tab = 'feed', screen;
   let libraryReady = false, librarySyncTimer = null, librarySyncPromise = null;
   const urlCache = new Map();
@@ -24,6 +27,73 @@
   }
   function errorText(error) { return error && error.message ? error.message : String(error); }
   function alertError(error) { window.alert(`爱你多一天：${errorText(error)}`); }
+  function formatBytes(bytes) {
+    if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
+  function notify(text, type = 'success') {
+    if (typeof window.showNotification === 'function') window.showNotification(text, type, 5000);
+  }
+  function canvasBlob(canvas, mime, quality) {
+    return new Promise(resolve => canvas.toBlob(resolve, mime, quality));
+  }
+  async function prepareImage(file) {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
+    if (!allowed.includes(file.type)) throw new Error('请选择 JPG、PNG、WebP、HEIC 或 GIF 图片');
+    if (file.size > MAX_SOURCE_BYTES) throw new Error('原图超过 30 MB，请先在相册里缩小后再试');
+    if (file.type === 'image/gif') {
+      if (file.size > MAX_GIF_BYTES) throw new Error('动图超过 8 MB；为了保留动画，请先压缩 GIF 后再上传');
+      return { blob: file, mime: file.type, extension: 'gif', compressed: false, originalSize: file.size };
+    }
+    const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[file.type];
+    const needsConversion = file.type === 'image/heic' || file.type === 'image/heif';
+    if (file.size <= TARGET_IMAGE_BYTES && !needsConversion) {
+      return { blob: file, mime: file.type, extension, compressed: false, originalSize: file.size };
+    }
+
+    const sourceUrl = URL.createObjectURL(file);
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('这张图片无法读取，请换一张或先另存为 JPG'));
+        img.src = sourceUrl;
+      });
+      let width = image.naturalWidth;
+      let height = image.naturalHeight;
+      const longest = Math.max(width, height);
+      if (longest > 2560) {
+        const scale = 2560 / longest;
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+      }
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d', { alpha: true });
+      if (!context) throw new Error('当前浏览器无法压缩图片');
+      let result = null;
+      let quality = 0.88;
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        canvas.width = width;
+        canvas.height = height;
+        context.clearRect(0, 0, width, height);
+        context.drawImage(image, 0, 0, width, height);
+        result = await canvasBlob(canvas, 'image/webp', quality);
+        if (!result) result = await canvasBlob(canvas, 'image/jpeg', quality);
+        if (result && result.size <= TARGET_IMAGE_BYTES) break;
+        if (quality > 0.58) quality -= 0.1;
+        else {
+          width = Math.max(1, Math.round(width * 0.82));
+          height = Math.max(1, Math.round(height * 0.82));
+        }
+      }
+      if (!result || result.size > TARGET_IMAGE_BYTES) throw new Error('自动压缩后仍超过 2 MB，请换一张尺寸更小的图片');
+      const outputMime = ['image/jpeg', 'image/png', 'image/webp'].includes(result.type) ? result.type : 'image/webp';
+      const outputExtension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[outputMime];
+      return { blob: result, mime: outputMime, extension: outputExtension, compressed: true, originalSize: file.size };
+    } finally {
+      URL.revokeObjectURL(sourceUrl);
+    }
+  }
   function ensure() {
     if (screen) return;
     screen = node('section', 'moments-screen'); screen.id = 'moments-screen';
@@ -228,23 +298,31 @@
     }
   }
   function renderGallery(root) {
-    root.append(note('图片只存进你的 Supabase 私密图库。只有勾选“允许他发动态/回复时使用”的图片或表情包，才会被自动挑选。最多 8 MB / 张。'));
-    const upload = node('input'); upload.type = 'file'; upload.accept = 'image/jpeg,image/png,image/webp,image/gif';
+    const upload = node('input'); upload.type = 'file'; upload.accept = 'image/*';
     const type = field('select'); type.append(new Option('照片', 'photo'), new Option('表情包', 'sticker'));
     const allow = node('input'); allow.type = 'checkbox';
-    root.append(row(upload, type, node('label', '', '允许他自动使用'), allow, button('上传图片', async () => {
+    const uploadButton = button('上传图片', async () => {
       const file = upload.files?.[0];
       if (!file) return alertError('先选择一张图片');
-      if (file.size > 8 * 1024 * 1024 || !['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)) return alertError('请选择不超过 8 MB 的 JPG/PNG/WebP/GIF 图片');
-      const extension = { 'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif' }[file.type];
-      const objectPath = `${user.id}/${crypto.randomUUID()}.${extension}`;
+      uploadButton.disabled = true;
+      uploadButton.textContent = (file.size > TARGET_IMAGE_BYTES || /image\/hei[cf]/.test(file.type)) && file.type !== 'image/gif' ? '正在压缩…' : '正在上传…';
       try {
-        await checked(db.storage.from(bucket).upload(objectPath, file, { contentType: file.type, upsert: false }));
+        const prepared = await prepareImage(file);
+        uploadButton.textContent = '正在上传…';
+        const objectPath = `${user.id}/${crypto.randomUUID()}.${prepared.extension}`;
+        await checked(db.storage.from(bucket).upload(objectPath, prepared.blob, { contentType: prepared.mime, upsert: false }));
         try { await checked(db.from('milk_moments_media').insert({ user_id: user.id, object_path: objectPath, kind: type.value, allow_auto: allow.checked })); }
         catch (e) { await db.storage.from(bucket).remove([objectPath]); throw e; }
+        if (prepared.compressed) notify(`已自动压缩：${formatBytes(prepared.originalSize)} → ${formatBytes(prepared.blob.size)}`);
+        else notify('图片已上传');
         await refresh(); renderShell();
-      } catch (e) { alertError(e); }
-    }, true)));
+      } catch (e) {
+        alertError(e);
+        uploadButton.disabled = false;
+        uploadButton.textContent = '上传图片';
+      }
+    }, true);
+    root.append(row(upload, type, node('label', '', '允许他自动使用'), allow, uploadButton));
     const gallery = node('div', 'moments-gallery'); root.append(gallery);
     for (const item of media) {
       const card = node('div', 'moments-gallery-item moments-card');
