@@ -10837,7 +10837,6 @@
         }
 /* Personal build: enter chat immediately and keep removed tools out of view. */
 #splash-declaration,
-#welcome-animation,
 #session-manager-btn,
 #group-chat-btn,
 #batch-btn,
@@ -11042,7 +11041,8 @@
 .moments-card { background: white; border: 1px solid #eee4e3; border-radius: 18px; padding: 16px; margin: 12px 0; overflow-wrap: anywhere; }
 .moments-field { width: 100%; box-sizing: border-box; border: 1px solid #e5d9dc; background: white; border-radius: 12px; padding: 10px; font: inherit; resize: vertical; color: #352c30; }
 .moments-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
-.moments-row > .moments-field { flex: 1; min-width: 120px; }\n.moments-row > input[type="file"] { max-width: 100%; min-width: 0; }
+.moments-row > .moments-field { flex: 1; min-width: 120px; }
+.moments-row > input[type="file"] { max-width: 100%; min-width: 0; }
 .moments-person { display: flex; align-items: center; gap: 10px; font-weight: 600; }
 .moments-person .moments-dot { background: #e9d7df; border-radius: 50%; width: 30px; height: 30px; display: grid; place-items: center; color: #765462; }
 .moments-body { white-space: pre-wrap; line-height: 1.6; margin: 12px 0; }
@@ -11055,9 +11055,23 @@
 .moments-sticker-choice img { width: 100%; height: 100%; object-fit: contain; border-radius: 8px; }
 .moments-sticker-choice.selected { border-color: #8b6474; box-shadow: 0 0 0 2px #8b64742b; }
 .moments-sticker-none { font-size: 12px; color: #766970; }
+.moments-photo-picker { display: flex; gap: 8px; width: 100%; overflow-x: auto; padding: 10px 1px 4px; scrollbar-width: thin; }
+.moments-photo-choice { width: 82px; min-width: 82px; height: 92px; padding: 5px; border: 1px solid #e5d9dc; border-radius: 12px; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; overflow: hidden; }
+.moments-photo-choice img { width: 70px; height: 62px; object-fit: cover; border-radius: 8px; }
+.moments-photo-choice span { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: #766970; }
+.moments-photo-choice.selected { border-color: #8b6474; box-shadow: 0 0 0 2px #8b64742b; }
+.moments-photo-none { height: 92px; color: #766970; }
 .moments-gallery { display: grid; grid-template-columns: repeat(auto-fill,minmax(125px,1fr)); gap: 10px; }
 .moments-gallery-item img { width: 100%; height: 125px; object-fit: cover; border-radius: 12px; }
-.moments-gallery-item label { display: block; font-size: 12px; }\n@media (max-width: 430px) {\n    .moments-shell { padding-inline: 12px; }\n    .moments-card { padding: 13px; }\n    .moments-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }\n    .cloud-sync-actions { flex-direction: column; }\n}
+.moments-gallery-item label { display: block; font-size: 12px; margin: 8px 0; }
+.moments-gallery-item .moments-field { margin: 8px 0 6px; padding: 8px; font-size: 12px; }
+.moments-gallery-item .moments-btn { margin: 2px 5px 2px 0; font-size: 12px; }
+@media (max-width: 430px) {
+    .moments-shell { padding-inline: 12px; }
+    .moments-card { padding: 13px; }
+    .moments-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cloud-sync-actions { flex-direction: column; }
+}
 .wallet-open-btn { flex: 0 0 36px; min-width:36px; background:transparent; color:var(--accent-color); border:0; font-size:19px; }
 .wallet-chat-card { display:flex; align-items:center; gap:11px; width:min(280px,72vw); box-sizing:border-box; padding:13px; color:#fff; background:linear-gradient(140deg,#d65f47,#b93d36); border-radius:15px; box-shadow:0 3px 10px #60242222; cursor:default; }
 .wallet-chat-card.claimed { background:linear-gradient(140deg,#cb8d76,#a98779); }
