@@ -101,6 +101,27 @@
       URL.revokeObjectURL(sourceUrl);
     }
   }
+  async function uploadMediaFile(file, kind, allowAuto = false) {
+    const prepared = await prepareImage(file);
+    const objectPath = `${user.id}/${crypto.randomUUID()}.${prepared.extension}`;
+    await checked(db.storage.from(bucket).upload(objectPath, prepared.blob, { contentType: prepared.mime, upsert: false }));
+    try {
+      const originalName = String(file.name || '').replace(/\.[^.]+$/, '').trim().slice(0, 80) || null;
+      const item = await checked(db.from('milk_moments_media').insert({
+        user_id: user.id,
+        object_path: objectPath,
+        kind,
+        allow_auto: allowAuto,
+        display_name: originalName
+      }).select().single());
+      if (prepared.compressed) notify(`已自动压缩：${formatBytes(prepared.originalSize)} → ${formatBytes(prepared.blob.size)}`);
+      else notify('图片已上传');
+      return item;
+    } catch (error) {
+      await db.storage.from(bucket).remove([objectPath]);
+      throw error;
+    }
+  }
   function ensure() {
     if (screen) return;
     screen = node('section', 'moments-screen'); screen.id = 'moments-screen';
@@ -170,7 +191,7 @@
       img.src = link; img.alt = '私密图片'; img.loading = 'lazy'; target.append(img);
     } catch (_) { target.append(note('图片暂时无法载入，请稍后刷新')); }
   }
-  function photoPicker() {
+  function photoPicker(onChoose) {
     const picker = node('div', 'moments-photo-picker');
     picker.dataset.value = '';
     Object.defineProperty(picker, 'value', { get: () => picker.dataset.value || '' });
@@ -178,6 +199,7 @@
       picker.querySelectorAll('.moments-photo-choice').forEach(item => item.classList.remove('selected'));
       choice.classList.add('selected');
       picker.dataset.value = value;
+      if (typeof onChoose === 'function') onChoose(value);
     };
     const empty = button('无图', () => choose(empty, ''));
     empty.className = 'moments-photo-choice selected moments-photo-none';
@@ -195,6 +217,7 @@
       choice.append(caption);
       picker.append(choice);
     });
+    picker.reset = () => choose(empty, '');
     return picker;
   }
   function stickerPicker() {
@@ -283,10 +306,60 @@
   }
   function renderFeed(root) {
     const compose = node('div', 'moments-card');
-    const text = field('textarea', '记下今天想说的话…'); const photo = photoPicker();
-    compose.append(node('div', 'moments-person', '写一条动态'), text, node('div', 'moments-meta', '选择配图（可选）'), photo, row(button('发表', async () => {
-      try { await publish(text.value, photo.value); } catch (e) { alertError(e); }
-    }, true))); root.append(compose);
+    const text = field('textarea', '记下今天想说的话…');
+    const directInput = node('input'); directInput.type = 'file'; directInput.accept = 'image/*'; directInput.hidden = true;
+    const directPreview = node('div', 'moments-direct-preview');
+    let directFile = null, directUrl = null;
+    const clearDirect = () => {
+      directFile = null;
+      directInput.value = '';
+      if (directUrl) URL.revokeObjectURL(directUrl);
+      directUrl = null;
+      directPreview.replaceChildren();
+    };
+    const photo = photoPicker(value => { if (value) clearDirect(); });
+    const chooseDirect = button('从手机相册选择', () => directInput.click());
+    directInput.addEventListener('change', () => {
+      const selected = directInput.files?.[0];
+      if (!selected) return;
+      clearDirect();
+      directFile = selected;
+      directUrl = URL.createObjectURL(selected);
+      photo.reset();
+      const img = node('img'); img.src = directUrl; img.alt = '准备发表的图片';
+      const info = node('span', '', `${selected.name || '已选图片'} · ${formatBytes(selected.size)}`);
+      directPreview.append(img, info, button('移除', clearDirect));
+    });
+    const publishButton = button('发表', async () => {
+      if (!text.value.trim() && !photo.value && !directFile) return alertError('写点文字或者选择一张图片再发表');
+      publishButton.disabled = true;
+      publishButton.textContent = directFile ? '正在处理图片…' : '正在发表…';
+      try {
+        let mediaId = photo.value;
+        if (directFile) {
+          const uploaded = await uploadMediaFile(directFile, 'photo', false);
+          media.unshift(uploaded);
+          mediaId = uploaded.id;
+        }
+        await publish(text.value, mediaId);
+        clearDirect();
+      } catch (e) {
+        alertError(e);
+        publishButton.disabled = false;
+        publishButton.textContent = '发表';
+      }
+    }, true);
+    compose.append(
+      node('div', 'moments-person', '写一条动态'),
+      text,
+      node('div', 'moments-meta', '直接选择手机照片'),
+      row(chooseDirect, directInput),
+      directPreview,
+      node('div', 'moments-meta', '或者从私密图库选择'),
+      photo,
+      row(publishButton)
+    );
+    root.append(compose);
     if (!posts.length) root.append(note('这里还没有动态。可以先写下你们的第一个瞬间。'));
     for (const post of posts) {
       const card = node('article', 'moments-card');
@@ -297,6 +370,12 @@
       appendImage(card, post.media_id);
       card.append(row(button(post.liked ? '♥ 已喜欢' : '♡ 喜欢', async () => {
         try { await checked(db.from('milk_moments_posts').update({ liked: !post.liked }).eq('id', post.id)); post.liked = !post.liked; renderShell(); } catch (e) { alertError(e); }
+      }), button('删除动态', async () => {
+        if (!window.confirm('删除这条动态？它下面的评论会一起删除，图片仍会保留在私密图库。')) return;
+        try {
+          await checked(db.from('milk_moments_posts').delete().eq('id', post.id).eq('user_id', user.id));
+          await refresh(); renderShell();
+        } catch (e) { alertError(e); }
       })));
       const thread = comments.filter(x => x.post_id === post.id);
       for (const comment of thread) {
@@ -335,15 +414,7 @@
       uploadButton.disabled = true;
       uploadButton.textContent = (file.size > TARGET_IMAGE_BYTES || /image\/hei[cf]/.test(file.type)) && file.type !== 'image/gif' ? '正在压缩…' : '正在上传…';
       try {
-        const prepared = await prepareImage(file);
-        uploadButton.textContent = '正在上传…';
-        const objectPath = `${user.id}/${crypto.randomUUID()}.${prepared.extension}`;
-        await checked(db.storage.from(bucket).upload(objectPath, prepared.blob, { contentType: prepared.mime, upsert: false }));
-        const originalName = String(file.name || '').replace(/\.[^.]+$/, '').trim().slice(0, 80) || null;
-        try { await checked(db.from('milk_moments_media').insert({ user_id: user.id, object_path: objectPath, kind: type.value, allow_auto: allow.checked, display_name: originalName })); }
-        catch (e) { await db.storage.from(bucket).remove([objectPath]); throw e; }
-        if (prepared.compressed) notify(`已自动压缩：${formatBytes(prepared.originalSize)} → ${formatBytes(prepared.blob.size)}`);
-        else notify('图片已上传');
+        await uploadMediaFile(file, type.value, allow.checked);
         await refresh(); renderShell();
       } catch (e) {
         alertError(e);
