@@ -87,9 +87,9 @@
         +       '<div class="dm-row-icon blue"><i class="fas fa-hourglass-half"></i></div>'
         +       '<div class="dm-row-info"><div class="dm-row-title">持续时长</div><div class="dm-row-desc">到时自动停止；再次开启会重新计时</div><div class="dm-push-range"><input type="range" min="1" max="24" step="1" value="10" id="sleep-push-hours"><span id="sleep-push-hours-value">10小时</span></div></div>'
         +     '</div>'
-        +     '<div class="dm-row-item">'
+        +     '<div class="dm-row-item dm-push-interval-row">'
         +       '<div class="dm-row-icon amber"><i class="fas fa-clock"></i></div>'
-        +       '<div class="dm-row-info"><div class="dm-row-title">消息发送间隔</div><div class="dm-row-desc" id="sleep-push-frequency">跟随“聊天设置 → 对话节奏 → 主动发送”的间隔</div></div>'
+        +       '<div class="dm-row-info"><div class="dm-row-title">消息发送间隔</div><div class="dm-row-desc" id="sleep-push-frequency">消息生成后立即推送</div><div class="dm-push-range"><input type="range" min="1" max="120" step="1" value="5" id="sleep-push-interval"><span id="sleep-push-interval-value">5分钟</span></div></div>'
         +     '</div>'
         +     '<div class="dm-row-item">'
         +       '<div class="dm-row-icon violet"><i class="fas fa-icons"></i></div>'
@@ -334,6 +334,15 @@
         if (sleepPushHours) sleepPushHours.addEventListener('input', function () {
             if (window.SleepPush) window.SleepPush.setDuration(sleepPushHours.value);
         });
+        var sleepPushInterval = mc.querySelector('#sleep-push-interval');
+        if (sleepPushInterval) {
+            sleepPushInterval.addEventListener('input', function () {
+                if (window.SleepPush) window.SleepPush.setPushInterval(sleepPushInterval.value, { persist: false });
+            });
+            sleepPushInterval.addEventListener('change', function () {
+                if (window.SleepPush) window.SleepPush.setPushInterval(sleepPushInterval.value, { persist: true });
+            });
+        }
 
         var logoInput = mc.querySelector('#app-logo-input');
         var logoUpload = mc.querySelector('#upload-app-logo');
