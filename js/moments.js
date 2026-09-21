@@ -31,6 +31,13 @@
     if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
+  function mediaName(item, fallbackIndex = 0) {
+    const saved = String(item?.display_name || '').trim();
+    if (saved) return saved;
+    const kind = item?.kind === 'sticker' ? '表情包' : '照片';
+    const date = item?.created_at ? new Date(item.created_at).toLocaleDateString() : '';
+    return `${kind}${fallbackIndex ? ` ${fallbackIndex}` : ''}${date ? ` · ${date}` : ''}`;
+  }
   function notify(text, type = 'success') {
     if (typeof window.showNotification === 'function') window.showNotification(text, type, 5000);
   }
@@ -163,11 +170,32 @@
       img.src = link; img.alt = '私密图片'; img.loading = 'lazy'; target.append(img);
     } catch (_) { target.append(note('图片暂时无法载入，请稍后刷新')); }
   }
-  function selector(kind) {
-    const select = field('select');
-    select.append(new Option(kind === 'photo' ? '不配图片' : '不用表情包', ''));
-    media.filter(x => x.kind === kind).forEach(x => select.append(new Option(`${kind === 'photo' ? '照片' : '表情包'} · ${new Date(x.created_at).toLocaleDateString()}`, x.id)));
-    return select;
+  function photoPicker() {
+    const picker = node('div', 'moments-photo-picker');
+    picker.dataset.value = '';
+    Object.defineProperty(picker, 'value', { get: () => picker.dataset.value || '' });
+    const choose = (choice, value) => {
+      picker.querySelectorAll('.moments-photo-choice').forEach(item => item.classList.remove('selected'));
+      choice.classList.add('selected');
+      picker.dataset.value = value;
+    };
+    const empty = button('无图', () => choose(empty, ''));
+    empty.className = 'moments-photo-choice selected moments-photo-none';
+    picker.append(empty);
+    media.filter(item => item.kind === 'photo').forEach((item, index) => {
+      const choice = button('', () => choose(choice, item.id));
+      choice.className = 'moments-photo-choice';
+      choice.title = mediaName(item, index + 1);
+      const caption = node('span', '', mediaName(item, index + 1));
+      imageFor(item.id).then(url => {
+        if (!url || !choice.isConnected) return;
+        const img = node('img'); img.src = url; img.alt = mediaName(item, index + 1);
+        choice.prepend(img);
+      }).catch(() => choice.remove());
+      choice.append(caption);
+      picker.append(choice);
+    });
+    return picker;
   }
   function stickerPicker() {
     const picker = node('div', 'moments-sticker-picker');
@@ -229,7 +257,7 @@
     if (!item) {
       await checked(db.storage.from(bucket).upload(objectPath, blob, { contentType: mime, upsert: false }));
       try {
-        item = await checked(db.from('milk_moments_media').insert({ user_id: user.id, object_path: objectPath, kind: 'sticker', allow_auto: false }).select().single());
+        item = await checked(db.from('milk_moments_media').insert({ user_id: user.id, object_path: objectPath, kind: 'sticker', allow_auto: false, display_name: `我的表情 ${index + 1}` }).select().single());
       } catch (error) {
         await db.storage.from(bucket).remove([objectPath]);
         throw error;
@@ -255,8 +283,8 @@
   }
   function renderFeed(root) {
     const compose = node('div', 'moments-card');
-    const text = field('textarea', '记下今天想说的话…'); const photo = selector('photo');
-    compose.append(node('div', 'moments-person', '写一条动态'), text, row(photo, button('发表', async () => {
+    const text = field('textarea', '记下今天想说的话…'); const photo = photoPicker();
+    compose.append(node('div', 'moments-person', '写一条动态'), text, node('div', 'moments-meta', '选择配图（可选）'), photo, row(button('发表', async () => {
       try { await publish(text.value, photo.value); } catch (e) { alertError(e); }
     }, true))); root.append(compose);
     if (!posts.length) root.append(note('这里还没有动态。可以先写下你们的第一个瞬间。'));
@@ -311,7 +339,8 @@
         uploadButton.textContent = '正在上传…';
         const objectPath = `${user.id}/${crypto.randomUUID()}.${prepared.extension}`;
         await checked(db.storage.from(bucket).upload(objectPath, prepared.blob, { contentType: prepared.mime, upsert: false }));
-        try { await checked(db.from('milk_moments_media').insert({ user_id: user.id, object_path: objectPath, kind: type.value, allow_auto: allow.checked })); }
+        const originalName = String(file.name || '').replace(/\.[^.]+$/, '').trim().slice(0, 80) || null;
+        try { await checked(db.from('milk_moments_media').insert({ user_id: user.id, object_path: objectPath, kind: type.value, allow_auto: allow.checked, display_name: originalName })); }
         catch (e) { await db.storage.from(bucket).remove([objectPath]); throw e; }
         if (prepared.compressed) notify(`已自动压缩：${formatBytes(prepared.originalSize)} → ${formatBytes(prepared.blob.size)}`);
         else notify('图片已上传');
@@ -324,16 +353,29 @@
     }, true);
     root.append(row(upload, type, node('label', '', '允许他自动使用'), allow, uploadButton));
     const gallery = node('div', 'moments-gallery'); root.append(gallery);
-    for (const item of media) {
+    for (const [index, item] of media.entries()) {
       const card = node('div', 'moments-gallery-item moments-card');
       appendImage(card, item.id);
+      const name = field('input', '给这张图片起个名字');
+      name.value = mediaName(item, index + 1);
+      name.maxLength = 80;
+      const saveName = button('保存名称', async () => {
+        const value = name.value.trim().slice(0, 80);
+        if (!value) return alertError('图片名称不能为空');
+        try {
+          await checked(db.from('milk_moments_media').update({ display_name: value }).eq('id', item.id));
+          item.display_name = value;
+          saveName.textContent = '已保存';
+          setTimeout(() => { if (saveName.isConnected) saveName.textContent = '保存名称'; }, 1200);
+        } catch (e) { alertError(e); }
+      });
       const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.checked = item.allow_auto;
       checkbox.addEventListener('change', async () => {
         try { await checked(db.from('milk_moments_media').update({ allow_auto: checkbox.checked }).eq('id', item.id)); item.allow_auto = checkbox.checked; }
         catch (e) { checkbox.checked = !checkbox.checked; alertError(e); }
       });
       const label = node('label', '', `${item.kind === 'sticker' ? '表情包' : '照片'} · 允许他使用`); label.prepend(checkbox);
-      card.append(label, button('删除', async () => {
+      card.append(name, saveName, label, button('删除', async () => {
         if (!window.confirm('删除这张私密图片？动态中的图片也将不再显示。')) return;
         try {
           await checked(db.from('milk_moments_media').delete().eq('id', item.id));
