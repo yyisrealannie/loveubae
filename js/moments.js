@@ -4,6 +4,7 @@
   const TARGET_IMAGE_BYTES = 2 * 1024 * 1024;
   const MAX_SOURCE_BYTES = 30 * 1024 * 1024;
   const MAX_GIF_BYTES = 8 * 1024 * 1024;
+  const MAX_BATCH_UPLOAD = 30;
   let db, user, config, posts = [], comments = [], media = [], tab = 'feed', screen;
   let libraryReady = false, librarySyncTimer = null, librarySyncPromise = null;
   const urlCache = new Map();
@@ -101,7 +102,7 @@
       URL.revokeObjectURL(sourceUrl);
     }
   }
-  async function uploadMediaFile(file, kind, allowAuto = false) {
+  async function uploadMediaFile(file, kind, allowAuto = false, silent = false) {
     const prepared = await prepareImage(file);
     const objectPath = `${user.id}/${crypto.randomUUID()}.${prepared.extension}`;
     await checked(db.storage.from(bucket).upload(objectPath, prepared.blob, { contentType: prepared.mime, upsert: false }));
@@ -114,8 +115,10 @@
         allow_auto: allowAuto,
         display_name: originalName
       }).select().single());
-      if (prepared.compressed) notify(`已自动压缩：${formatBytes(prepared.originalSize)} → ${formatBytes(prepared.blob.size)}`);
-      else notify('图片已上传');
+      if (!silent) {
+        if (prepared.compressed) notify(`已自动压缩：${formatBytes(prepared.originalSize)} → ${formatBytes(prepared.blob.size)}`);
+        else notify('图片已上传');
+      }
       return item;
     } catch (error) {
       await db.storage.from(bucket).remove([objectPath]);
@@ -405,23 +408,42 @@
     }
   }
   function renderGallery(root) {
-    const upload = node('input'); upload.type = 'file'; upload.accept = 'image/*';
+    const upload = node('input'); upload.type = 'file'; upload.accept = 'image/*'; upload.multiple = true;
     const type = field('select'); type.append(new Option('照片', 'photo'), new Option('表情包', 'sticker'));
     const allow = node('input'); allow.type = 'checkbox';
-    const uploadButton = button('上传图片', async () => {
-      const file = upload.files?.[0];
-      if (!file) return alertError('先选择一张图片');
+    const uploadButton = button('批量上传', async () => {
+      const files = Array.from(upload.files || []);
+      if (!files.length) return alertError('请先选择图片');
+      if (files.length > MAX_BATCH_UPLOAD) return alertError(`一次最多选择 ${MAX_BATCH_UPLOAD} 张图片`);
       uploadButton.disabled = true;
-      uploadButton.textContent = (file.size > TARGET_IMAGE_BYTES || /image\/hei[cf]/.test(file.type)) && file.type !== 'image/gif' ? '正在压缩…' : '正在上传…';
-      try {
-        await uploadMediaFile(file, type.value, allow.checked);
-        await refresh(); renderShell();
-      } catch (e) {
-        alertError(e);
+      let success = 0;
+      const failures = [];
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        uploadButton.textContent = `正在上传 ${index + 1}/${files.length}`;
+        try {
+          await uploadMediaFile(file, type.value, allow.checked, true);
+          success += 1;
+        } catch (error) {
+          failures.push(`${file.name || `第 ${index + 1} 张`}：${errorText(error)}`);
+        }
+      }
+      try { await refresh(); renderShell(); }
+      catch (error) {
         uploadButton.disabled = false;
-        uploadButton.textContent = '上传图片';
+        uploadButton.textContent = `上传 ${files.length} 张`;
+        return alertError(error);
+      }
+      if (failures.length) {
+        window.alert(`已成功上传 ${success} 张，失败 ${failures.length} 张。\n${failures.slice(0, 3).join('\n')}${failures.length > 3 ? '\n…' : ''}`);
+      } else {
+        notify(`已上传 ${success} 张图片`);
       }
     }, true);
+    upload.addEventListener('change', () => {
+      const count = upload.files?.length || 0;
+      uploadButton.textContent = count ? `上传 ${count} 张` : '批量上传';
+    });
     root.append(row(upload, type, node('label', '', '允许他自动使用'), allow, uploadButton));
     const gallery = node('div', 'moments-gallery'); root.append(gallery);
     for (const [index, item] of media.entries()) {
