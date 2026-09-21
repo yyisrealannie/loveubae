@@ -11061,6 +11061,10 @@
 .moments-photo-choice span { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: #766970; }
 .moments-photo-choice.selected { border-color: #8b6474; box-shadow: 0 0 0 2px #8b64742b; }
 .moments-photo-none { height: 92px; color: #766970; }
+.moments-direct-preview { display: flex; align-items: center; gap: 9px; margin: 8px 0; min-width: 0; }
+.moments-direct-preview:empty { display: none; }
+.moments-direct-preview img { width: 66px; height: 66px; flex: 0 0 66px; object-fit: cover; border-radius: 11px; }
+.moments-direct-preview span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #766970; }
 .moments-gallery { display: grid; grid-template-columns: repeat(auto-fill,minmax(125px,1fr)); gap: 10px; }
 .moments-gallery-item img { width: 100%; height: 125px; object-fit: cover; border-radius: 12px; }
 .moments-gallery-item label { display: block; font-size: 12px; margin: 8px 0; }
