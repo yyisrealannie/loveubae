@@ -1431,57 +1431,57 @@ function initComboMenu() {
         '图片','表情','语音','【图片】','【表情】','【语音】','撤回了一条消息','已撤回'
     ]);
 
-    function isStopWord(word) {
-        if (STOP_WORDS.has(word)) return true;
+    var activeBlacklist = new Set();
+    var wordCloudRenderVersion = 0;
+    var chineseSegmenter = null;
+    try {
+        if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+            chineseSegmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' });
+        }
+    } catch (e) {}
+
+    function readBlacklist() {
         try {
-            var custom = JSON.parse(localStorage.getItem('wordCloudBlacklist') || '[]');
-            return Array.isArray(custom) && custom.some(function(item) {
-                return String(item).trim().toLowerCase() === String(word).trim().toLowerCase();
-            });
-        } catch (e) { return false; }
+            var saved = JSON.parse(localStorage.getItem('wordCloudBlacklist') || '[]');
+            activeBlacklist = new Set((Array.isArray(saved) ? saved : []).map(function(item) {
+                return String(item).trim().toLowerCase();
+            }).filter(Boolean));
+        } catch (e) {
+            activeBlacklist = new Set();
+        }
+        return activeBlacklist;
+    }
+
+    function isStopWord(word) {
+        var normalized = String(word || '').trim().toLowerCase();
+        return !normalized || STOP_WORDS.has(normalized) || activeBlacklist.has(normalized);
     }
 
     function tokenize(text) {
-        text = text
+        var cleaned = String(text || '')
             .replace(/https?:\/\/\S+/g, '')
             .replace(/\[.*?\]/g, '')
             .replace(/<[^>]+>/g, '')
-            .replace(/[^\u4e00-\u9fa5a-zA-Z]/g, ' ')
+            .replace(/[^\u3400-\u9fffa-zA-Z]/g, ' ')
             .toLowerCase();
         var words = {};
-        var cn = text.replace(/[a-z ]/g, '');
-        // 使用非重叠分词：优先提取长词，避免"我想你"同时产生"我想"和"想你"
-        // 策略：对每个起点只取一次最长匹配（4>3>2），跳过已覆盖字符
-        var covered = new Array(cn.length).fill(false);
-        // 先扫一遍提取4字词
-        for (var i = 0; i + 4 <= cn.length; i++) {
-            var w4 = cn.slice(i, i + 4);
-            if (!isStopWord(w4)) {
-                words[w4] = (words[w4] || 0) + 2.4;
-                covered[i] = covered[i+1] = covered[i+2] = covered[i+3] = true;
-                i += 3; // 跳过已覆盖字符
-            }
+        function add(word) {
+            word = String(word || '').trim().toLowerCase();
+            var isEnglish = /^[a-z]+$/.test(word);
+            if ((isEnglish ? word.length < 3 : word.length < 2) || isStopWord(word)) return;
+            words[word] = (words[word] || 0) + 1;
         }
-        // 再扫3字词（跳过已覆盖位置）
-        covered = new Array(cn.length).fill(false); // 重置，用于3字
-        for (var j = 0; j + 3 <= cn.length; j++) {
-            var w3 = cn.slice(j, j + 3);
-            if (!isStopWord(w3)) {
-                words[w3] = (words[w3] || 0) + 1.8;
-                j += 2;
-            }
+        if (chineseSegmenter) {
+            Array.from(chineseSegmenter.segment(cleaned)).forEach(function(part) {
+                if (part.isWordLike) add(part.segment);
+            });
+        } else {
+            (cleaned.match(/[a-z]{3,}/g) || []).forEach(add);
+            (cleaned.match(/[\u3400-\u9fff]+/g) || []).forEach(function(run) {
+                if (run.length <= 4) add(run);
+                else for (var i = 0; i + 2 <= run.length; i += 2) add(run.slice(i, i + 2));
+            });
         }
-        // 2字词：步长2，非重叠，不与已有词重复计数
-        for (var k = 0; k + 2 <= cn.length; k += 2) {
-            var w2 = cn.slice(k, k + 2);
-            if (!isStopWord(w2)) {
-                words[w2] = (words[w2] || 0) + 1;
-            }
-        }
-        // 英文单词（长度≥3）
-        (text.match(/[a-z]{3,}/g) || []).forEach(function(w) {
-            if (!isStopWord(w)) words[w] = (words[w] || 0) + 1;
-        });
         return words;
     }
 
@@ -1497,6 +1497,21 @@ function initComboMenu() {
             .sort(function(a, b) { return b[1] - a[1]; })
             .slice(0, n)
             .map(function(e) { return { word: e[0], count: e[1] }; });
+    }
+
+    function leastWords(freq, n) {
+        return Object.entries(freq)
+            .filter(function(e) { return e[1] >= 1 && e[0].length >= 2; })
+            .sort(function(a, b) { return a[1] - b[1] || a[0].localeCompare(b[0], 'zh-CN'); })
+            .slice(0, n)
+            .map(function(e) { return { word: e[0], count: e[1] }; });
+    }
+
+    function nextFrame() {
+        return new Promise(function(resolve) {
+            if (typeof requestIdleCallback === 'function') requestIdleCallback(resolve, { timeout: 40 });
+            else setTimeout(resolve, 0);
+        });
     }
 
     function resolveFont() {
@@ -1589,7 +1604,7 @@ function initComboMenu() {
             var placed_ = false;
             var cx = W / 2, cy = H / 2;
 
-            for (var t = 0; t < 320; t += 0.09) {
+            for (var t = 0; t < 220; t += 0.16) {
                 var ang = t * 2.2;
                 var r   = 1.8 * ang;
                 var bx  = cx + r * Math.cos(ang) * 1.2 - bw / 2;
@@ -1634,9 +1649,16 @@ function initComboMenu() {
         });
     }
 
-    window.renderWordCloud = function() {
+    function escapeWordCloudHtml(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function(char) {
+            return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char];
+        });
+    }
+
+    window.renderWordCloud = async function() {
         var container = document.getElementById('wordcloud-container');
         if (!container) return;
+        var renderVersion = ++wordCloudRenderVersion;
 
         if (typeof messages === 'undefined' || !messages || !messages.length) {
             container.innerHTML = '<div class="wc-empty"><i class="fas fa-ghost"></i><p>还没有聊天记录</p><span>多聊几句，词云就会出现～</span></div>';
@@ -1645,38 +1667,86 @@ function initComboMenu() {
 
         var pName = (typeof settings !== 'undefined' && settings.partnerName) ? settings.partnerName : '对方';
         var mName = (typeof settings !== 'undefined' && settings.myName)      ? settings.myName      : '我';
-
         var WORDCLOUD_SAMPLE_LIMIT = 12000;
-        var partnerMsgs = [], myMsgs = [];
-        var partnerTotal = 0, myTotal = 0, sampled = 0;
-        for (var mi = messages.length - 1; mi >= 0; mi--) {
-            var msg = messages[mi];
-            if (!msg || !msg.text || msg.type === 'system' || msg.type === 'call-event') continue;
-            if (msg.sender === 'user') myTotal += 1;
-            else partnerTotal += 1;
-            if (sampled >= WORDCLOUD_SAMPLE_LIMIT) continue;
-            if (msg.sender === 'user') myMsgs.push(msg);
-            else partnerMsgs.push(msg);
-            sampled += 1;
+        readBlacklist();
+        var lastMsg = messages[messages.length - 1] || {};
+        var cacheKey = [
+            messages.length,
+            String(lastMsg.id || ''),
+            String(lastMsg.timestamp || ''),
+            String(lastMsg.text || '').length,
+            Array.from(activeBlacklist).sort().join('\u0001')
+        ].join('|');
+        var cached = container._wordCloudCache;
+
+        if (!cached || cached.key !== cacheKey) {
+            container.setAttribute('aria-busy', 'true');
+            container.innerHTML = '<div class="wc-calculating"><i class="fas fa-circle-notch fa-spin"></i><span>正在分批统计，不会卡住聊天…</span></div>';
+            var partnerMsgs = [], myMsgs = [];
+            var partnerTotal = 0, myTotal = 0, sampled = 0;
+            for (var mi = messages.length - 1; mi >= 0; mi--) {
+                var msg = messages[mi];
+                if (msg && msg.text && msg.type !== 'system' && msg.type !== 'call-event') {
+                    if (msg.sender === 'user') myTotal += 1;
+                    else partnerTotal += 1;
+                    if (sampled < WORDCLOUD_SAMPLE_LIMIT) {
+                        if (msg.sender === 'user') myMsgs.push(msg);
+                        else partnerMsgs.push(msg);
+                        sampled += 1;
+                    }
+                }
+                if (mi % 600 === 0) {
+                    await nextFrame();
+                    if (renderVersion !== wordCloudRenderVersion || !container.isConnected) return;
+                }
+            }
+
+            var pFreq = {}, mFreq = {};
+            var processed = 0;
+            for (var pi = 0; pi < partnerMsgs.length; pi++) {
+                mergeFreq(pFreq, tokenize(partnerMsgs[pi].text));
+                processed += 1;
+                if (processed % 120 === 0) {
+                    await nextFrame();
+                    if (renderVersion !== wordCloudRenderVersion || !container.isConnected) return;
+                }
+            }
+            for (var ui = 0; ui < myMsgs.length; ui++) {
+                mergeFreq(mFreq, tokenize(myMsgs[ui].text));
+                processed += 1;
+                if (processed % 120 === 0) {
+                    await nextFrame();
+                    if (renderVersion !== wordCloudRenderVersion || !container.isConnected) return;
+                }
+            }
+            var aFreq = {};
+            mergeFreq(aFreq, pFreq);
+            mergeFreq(aFreq, mFreq);
+            cached = {
+                key: cacheKey,
+                partnerTotal: partnerTotal,
+                myTotal: myTotal,
+                sampled: sampled,
+                pTop: topWords(pFreq, 60), mTop: topWords(mFreq, 60), aTop: topWords(aFreq, 60),
+                pLow: leastWords(pFreq, 10), mLow: leastWords(mFreq, 10), aLow: leastWords(aFreq, 10),
+                pUnique: Object.keys(pFreq).length,
+                mUnique: Object.keys(mFreq).length,
+                aUnique: Object.keys(aFreq).length
+            };
+            container._wordCloudCache = cached;
         }
 
-        var pFreq = {}, mFreq = {};
-        partnerMsgs.forEach(function(m) { mergeFreq(pFreq, tokenize(String(m.text))); });
-        myMsgs.forEach(function(m)      { mergeFreq(mFreq, tokenize(String(m.text))); });
-        var aFreq = {};
-        mergeFreq(aFreq, pFreq);
-        mergeFreq(aFreq, mFreq);
-
-        var pTop = topWords(pFreq, 60);
-        var mTop = topWords(mFreq, 60);
-        var aTop = topWords(aFreq, 60);
+        if (renderVersion !== wordCloudRenderVersion || !container.isConnected) return;
+        container.removeAttribute('aria-busy');
+        var partnerTotal = cached.partnerTotal, myTotal = cached.myTotal;
+        var pTop = cached.pTop, mTop = cached.mTop, aTop = cached.aTop;
 
         var cur = container._currentView || 'all';
 
         function data(v) {
-            if (v === 'partner') return { words: pTop, total: partnerTotal };
-            if (v === 'me')      return { words: mTop, total: myTotal };
-            return { words: aTop, total: partnerTotal + myTotal };
+            if (v === 'partner') return { words: pTop, low: cached.pLow, total: partnerTotal, unique: cached.pUnique };
+            if (v === 'me')      return { words: mTop, low: cached.mLow, total: myTotal, unique: cached.mUnique };
+            return { words: aTop, low: cached.aLow, total: partnerTotal + myTotal, unique: cached.aUnique };
         }
 
         function renderRank(words) {
@@ -1694,13 +1764,44 @@ function initComboMenu() {
                     : 'color:var(--text-secondary);font-weight:500;';
                 return '<div class="wc-rank-item">'
                     + '<span class="wc-rank-num" style="'+numStyle+'">' + (i < 9 ? '0'+(i+1) : i+1) + '</span>'
-                    + '<span class="wc-rank-word">' + item.word + '</span>'
+                    + '<span class="wc-rank-word">' + escapeWordCloudHtml(item.word) + '</span>'
                     + '<div class="wc-rank-bar-wrap">'
                     +   '<div class="wc-rank-bar" style="width:'+pct+'%;background:rgba('+rgb[0]+','+rgb[1]+','+rgb[2]+','+(0.2+pct/100*0.6)+');"></div>'
                     + '</div>'
-                    + '<span class="wc-rank-count">' + Math.round(item.count) + '</span>'
+                    + '<span class="wc-rank-count">' + item.count + '次</span>'
                     + '</div>';
             }).join('');
+        }
+
+        function removeFromStats(word) {
+            if (!confirm('把“' + word + '”从词云统计中移除？\n\n不会删除聊天记录，可以在右上角筛选按钮中恢复。')) return;
+            readBlacklist();
+            activeBlacklist.add(String(word).trim().toLowerCase());
+            localStorage.setItem('wordCloudBlacklist', JSON.stringify(Array.from(activeBlacklist)));
+            container._wordCloudCache = null;
+            container.innerHTML = '';
+            window.renderWordCloud();
+            if (typeof showNotification === 'function') showNotification('已从词云统计移除：' + word, 'success');
+        }
+
+        function renderLow(words) {
+            var el = container.querySelector('.wc-low-list');
+            if (!el) return;
+            el.replaceChildren();
+            if (!words.length) {
+                var empty = document.createElement('div');
+                empty.className = 'wc-rank-empty'; empty.textContent = '暂无数据'; el.appendChild(empty); return;
+            }
+            words.forEach(function(item, index) {
+                var row = document.createElement('div'); row.className = 'wc-low-item';
+                var num = document.createElement('span'); num.className = 'wc-low-num'; num.textContent = String(index + 1).padStart(2, '0');
+                var word = document.createElement('span'); word.className = 'wc-low-word'; word.textContent = item.word;
+                var count = document.createElement('span'); count.className = 'wc-low-count'; count.textContent = item.count + ' 次';
+                var remove = document.createElement('button'); remove.type = 'button'; remove.className = 'wc-low-remove';
+                remove.textContent = '移除'; remove.setAttribute('aria-label', '从词云移除 ' + item.word);
+                remove.addEventListener('click', function() { removeFromStats(item.word); });
+                row.append(num, word, count, remove); el.appendChild(row);
+            });
         }
 
         function renderSummary(d) {
@@ -1708,8 +1809,8 @@ function initComboMenu() {
             if (!el) return;
             el.innerHTML =
                 '<span class="wc-summary-pill"><i class="fas fa-comment-dots"></i> ' + d.total + ' 条</span>'
-                + '<span class="wc-summary-pill"><i class="fas fa-font"></i> ' + d.words.length + ' 词</span>'
-                + ((partnerTotal + myTotal) > WORDCLOUD_SAMPLE_LIMIT
+                + '<span class="wc-summary-pill"><i class="fas fa-font"></i> ' + d.unique + ' 词</span>'
+                + ((partnerTotal + myTotal) > cached.sampled
                     ? '<span class="wc-summary-pill"><i class="fas fa-bolt"></i> 词云取最近 ' + WORDCLOUD_SAMPLE_LIMIT + ' 条</span>'
                     : '');
         }
@@ -1724,6 +1825,7 @@ function initComboMenu() {
             var d = data(v);
             drawWordCloud(canvas, d.words);
             renderRank(d.words);
+            renderLow(d.low);
             renderSummary(d);
         }
 
@@ -1736,8 +1838,8 @@ function initComboMenu() {
                 '<div class="wc-header">'
                 +   '<div class="wc-tabs"><div class="wc-tabs-track">'
                 +     '<button class="wc-view-btn'+(cur==='all'?' active':'')+'" data-view="all">全部</button>'
-                +     '<button class="wc-view-btn'+(cur==='partner'?' active':'')+'" data-view="partner">'+pName+'</button>'
-                +     '<button class="wc-view-btn'+(cur==='me'?' active':'')+'" data-view="me">'+mName+'</button>'
+                +     '<button class="wc-view-btn'+(cur==='partner'?' active':'')+'" data-view="partner">'+escapeWordCloudHtml(pName)+'</button>'
+                +     '<button class="wc-view-btn'+(cur==='me'?' active':'')+'" data-view="me">'+escapeWordCloudHtml(mName)+'</button>'
                 +   '</div></div>'
                 +   '<div style="display:flex;gap:6px;">'
                 +     '<button class="wc-blacklist-btn wc-regen-btn" title="关键词黑名单"><i class="fas fa-filter"></i></button>'
@@ -1751,6 +1853,11 @@ function initComboMenu() {
                 + '<div class="wc-rank-section">'
                 +   '<div class="wc-rank-title"><i class="fas fa-bars"></i> 高频词 Top 10</div>'
                 +   '<div class="wc-rank-list"></div>'
+                + '</div>'
+                + '<div class="wc-rank-section wc-low-section">'
+                +   '<div class="wc-rank-title"><i class="fas fa-arrow-down"></i> 使用最少 10 个</div>'
+                +   '<div class="wc-low-note">次数为本次统计样本中的真实出现次数；移除不会删除聊天记录。</div>'
+                +   '<div class="wc-low-list"></div>'
                 + '</div>';
 
             container.querySelector('.wc-tabs-track').addEventListener('click', function(e) {
@@ -1773,6 +1880,7 @@ function initComboMenu() {
                 if (input === null) return;
                 var items = input.split(/[,，\n]/).map(function(x){ return x.trim().toLowerCase(); }).filter(Boolean);
                 localStorage.setItem('wordCloudBlacklist', JSON.stringify(Array.from(new Set(items))));
+                container._wordCloudCache = null;
                 container.innerHTML = '';
                 window.renderWordCloud();
                 if (typeof showNotification === 'function') showNotification('词云黑名单已更新', 'success');
