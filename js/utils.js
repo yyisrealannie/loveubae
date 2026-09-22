@@ -152,9 +152,14 @@ function deduplicateSimilarContentArray(arr, baseSystemArray = [], threshold = 0
             const existing = document.querySelector('.notification');
             if (existing) existing.remove();
             const notification = document.createElement('div');
-            notification.className = `notification ${type}`;
+            const safeType = ['success', 'error', 'info', 'warning'].includes(type) ? type : 'info';
+            notification.className = `notification ${safeType}`;
             const iconMap = { success:'fa-check-circle', error:'fa-exclamation-circle', info:'fa-info-circle', warning:'fa-exclamation-triangle' };
-            notification.innerHTML = `<i class="fas ${iconMap[type] || 'fa-info-circle'}"></i><span>${message}</span>`;
+            const icon = document.createElement('i');
+            icon.className = `fas ${iconMap[safeType]}`;
+            const text = document.createElement('span');
+            text.textContent = String(message ?? '');
+            notification.append(icon, text);
             document.body.appendChild(notification);
             setTimeout(() => {
                 notification.classList.add('hiding');

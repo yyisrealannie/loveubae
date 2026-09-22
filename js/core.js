@@ -918,6 +918,12 @@ function manageAutoSendTimer() {
             }
         };
 
+function escapeMessageHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[char]);
+}
+
 function createMessageFragment(msg, prevMsg, nextMsg, lastSenderRef) {
     const fragment = new DocumentFragment();
     const messageDate = new Date(msg.timestamp).toDateString();
@@ -985,8 +991,8 @@ function createMessageFragment(msg, prevMsg, nextMsg, lastSenderRef) {
         const icon = msg.callIcon || 'fa-video';
         const isRejected = icon === 'fa-phone-slash';
         const colorClass = isRejected ? 'call-event-pill--rejected' : 'call-event-pill--ended';
-        const detail = msg.callDetail ? `<span class="call-event-detail">${msg.callDetail}</span>` : '';
-        callEvDiv.innerHTML = `<div class="call-event-pill ${colorClass}"><i class="fas ${icon} call-event-icon"></i><span class="call-event-label">${msg.text.replace(/ · .*/, '')}</span>${detail}<button class="call-event-delete" title="删除" onclick="(function(btn){const id=btn.closest('[data-id]').dataset.id;const idx=messages.findIndex(m=>String(m.id)===String(id));if(idx>-1){messages.splice(idx,1);renderMessages();throttledSaveData();}})(this)"><i class="fas fa-times"></i></button></div>`;
+        const detail = msg.callDetail ? `<span class="call-event-detail">${escapeMessageHtml(msg.callDetail)}</span>` : '';
+        callEvDiv.innerHTML = `<div class="call-event-pill ${colorClass}"><i class="fas ${icon} call-event-icon"></i><span class="call-event-label">${escapeMessageHtml(String(msg.text || '').replace(/ · .*/, ''))}</span>${detail}<button class="call-event-delete" title="删除" onclick="(function(btn){const id=btn.closest('[data-id]').dataset.id;const idx=messages.findIndex(m=>String(m.id)===String(id));if(idx>-1){messages.splice(idx,1);renderMessages();throttledSaveData();}})(this)"><i class="fas fa-times"></i></button></div>`;
         fragment.appendChild(callEvDiv);
         lastSenderRef.current = 'system';
         return fragment;
@@ -1079,12 +1085,12 @@ function createMessageFragment(msg, prevMsg, nextMsg, lastSenderRef) {
     if (msg.replyTo) {
         const repliedText = msg.replyTo.text || (msg.replyTo.image ? '🖼 图片' : '[消息]');
         const repliedSender = msg.replyTo.sender === 'user' ? (settings.myName || '我') : (settings.partnerName || '对方');
-        messageHTML += `<div class="reply-indicator" data-reply-id="${msg.replyTo.id || ''}" style="cursor:pointer;" onclick="scrollToQuotedMessage(this)"><span class="reply-indicator-sender">${repliedSender}</span><span class="reply-indicator-text">${repliedText}</span></div>`;
+        messageHTML += `<div class="reply-indicator" data-reply-id="${escapeMessageHtml(msg.replyTo.id || '')}" style="cursor:pointer;" onclick="scrollToQuotedMessage(this)"><span class="reply-indicator-sender">${escapeMessageHtml(repliedSender)}</span><span class="reply-indicator-text">${escapeMessageHtml(repliedText)}</span></div>`;
     }
 
     const isImageOnly = !msg.text && !!msg.image;
-    let content = msg.text ? `<div>${msg.text.replace(/\n/g, '<br>')}</div>` : '';
-    if (msg.image) content += `<img src="${msg.image}" class="message-image${isImageOnly ? ' message-image-only' : ''}" alt="图片" style="max-width:${isImageOnly ? '100px' : '100px'}; border-radius: 12px;${!isImageOnly ? ' margin-top: 6px;' : ''} cursor: pointer;" onclick="viewImage('${msg.image}')">`;
+    let content = msg.text ? `<div>${escapeMessageHtml(msg.text).replace(/\n/g, '<br>')}</div>` : '';
+    if (msg.image) content += `<img src="${escapeMessageHtml(msg.image)}" class="message-image${isImageOnly ? ' message-image-only' : ''}" alt="图片" loading="lazy" style="max-width:100px; border-radius: 12px;${!isImageOnly ? ' margin-top: 6px;' : ''} cursor: pointer;">`;
     messageHTML += content;
 
     const messageDiv = document.createElement('div');
@@ -1094,6 +1100,8 @@ function createMessageFragment(msg, prevMsg, nextMsg, lastSenderRef) {
         messageDiv.className = `message message-${msg.sender === 'user' ? 'sent' : 'received'} ${settings.bubbleStyle}`;
     }
     messageDiv.innerHTML = messageHTML;
+    const messageImage = messageDiv.querySelector('.message-image');
+    if (messageImage) messageImage.addEventListener('click', () => viewImage(msg.image));
 
     let actionsHTML = '';
     if (settings.replyEnabled) actionsHTML += `<button class="meta-action-btn reply-btn" title="回复"><i class="fas fa-reply"></i></button>`;
