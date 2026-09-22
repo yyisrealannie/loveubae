@@ -10672,6 +10672,8 @@
         .wc-rank-list { display: flex; flex-direction: column; gap: 8px; }
         .wc-rank-empty { text-align: center; padding: 12px; color: var(--text-secondary); font-size: 12px; }
 
+        .wc-rank-entry { min-width: 0; }
+
         .wc-rank-item {
             display: flex;
             align-items: center;
@@ -10713,6 +10715,14 @@
             text-align: right;
             flex-shrink: 0;
             font-variant-numeric: tabular-nums;
+        }
+        .wc-variant-line {
+            margin: 3px 50px 0 32px;
+            color: var(--text-secondary);
+            opacity: 0.7;
+            font-size: 10px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
         }
 
         .wc-calculating {
@@ -10758,6 +10768,15 @@
             font-size: 13px;
         }
         .wc-low-count { text-align: right; }
+        .wc-low-variant {
+            grid-column: 2 / -1;
+            margin: -4px 0 7px;
+            color: var(--text-secondary);
+            opacity: 0.7;
+            font-size: 10px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
         .wc-low-remove {
             border: 1px solid var(--border-color);
             border-radius: 8px;

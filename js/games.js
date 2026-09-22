@@ -1434,6 +1434,17 @@ function initComboMenu() {
     var activeBlacklist = new Set();
     var wordCloudRenderVersion = 0;
     var chineseSegmenter = null;
+    var PHRASE_ALIASES = {
+        'milkhugtoken': '抱抱',
+        'milknohugtoken': '不要抱抱',
+        'milkkisstoken': '亲亲',
+        'milknokisstoken': '不要亲亲',
+        'milkmisstoken': '想你',
+        'milknomisstoken': '不想你',
+        'milklovetoken': '爱你',
+        'milknolovetoken': '不爱你',
+        'milkdisliketoken': '不喜欢'
+    };
     try {
         if (typeof Intl !== 'undefined' && Intl.Segmenter) {
             chineseSegmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' });
@@ -1457,16 +1468,51 @@ function initComboMenu() {
         return !normalized || STOP_WORDS.has(normalized) || activeBlacklist.has(normalized);
     }
 
-    function tokenize(text) {
+    function addVariant(target, canonical, variant) {
+        if (!target) return;
+        variant = String(variant || '').trim().toLowerCase();
+        if (!variant) return;
+        if (!target[canonical]) target[canonical] = {};
+        target[canonical][variant] = (target[canonical][variant] || 0) + 1;
+    }
+
+    function mergeVariants(target, source) {
+        Object.keys(source).forEach(function(canonical) {
+            if (!target[canonical]) target[canonical] = {};
+            Object.keys(source[canonical]).forEach(function(variant) {
+                target[canonical][variant] = (target[canonical][variant] || 0) + source[canonical][variant];
+            });
+        });
+        return target;
+    }
+
+    function tokenize(text, variants) {
         var cleaned = String(text || '')
             .replace(/https?:\/\/\S+/g, '')
             .replace(/\[.*?\]/g, '')
             .replace(/<[^>]+>/g, '')
             .replace(/[^\u3400-\u9fffa-zA-Z]/g, ' ')
             .toLowerCase();
+        // 先保护否定表达，再合并含义明确的亲密说法；避免“不喜欢”被算成“喜欢”。
+        function replacePhrase(regex, token, canonical) {
+            cleaned = cleaned.replace(regex, function(match) {
+                addVariant(variants, canonical, match);
+                return ' ' + token + ' ';
+            });
+        }
+        replacePhrase(/(?:不想|不要|别|不许|不能|不可以|不准)(?:再|让|给|和|跟|你|我|老公|哥哥|黎深)*?(?:抱抱|抱我|抱一下|抱一抱)/g, 'milknohugtoken', '不要抱抱');
+        replacePhrase(/(?:不想|不要|别|不许|不能|不可以|不准)(?:再|让|给|你|我|老公|哥哥|黎深)*?(?:亲亲|亲一下|亲一口|亲一个|么么哒)/g, 'milknokisstoken', '不要亲亲');
+        replacePhrase(/(?:不想你|不想念你|别想我)/g, 'milknomisstoken', '不想你');
+        replacePhrase(/(?:不爱你|不再爱你|不喜欢你了)/g, 'milknolovetoken', '不爱你');
+        replacePhrase(/(?:不太喜欢|不怎么喜欢|不喜欢)/g, 'milkdisliketoken', '不喜欢');
+        replacePhrase(/(?:我)?(?:好想|想要|想|要|给我|来个|来一个|求)?(?:让)?(?:你|老公|哥哥|黎深)?(?:抱抱|抱我|抱一下|抱一抱)/g, 'milkhugtoken', '抱抱');
+        replacePhrase(/(?:我)?(?:好想|想要|想|要|给我|来个|来一个|求)?(?:让)?(?:你|老公|哥哥|黎深)?(?:亲亲|亲一下|亲一口|亲一个|么么哒)|\bmua+\b/g, 'milkkisstoken', '亲亲');
+        replacePhrase(/(?:我)?(?:好想你|想你|想念你|思念你)/g, 'milkmisstoken', '想你');
+        replacePhrase(/(?:我)?(?:好爱你|最爱你|爱你)/g, 'milklovetoken', '爱你');
         var words = {};
         function add(word) {
             word = String(word || '').trim().toLowerCase();
+            if (PHRASE_ALIASES[word]) word = PHRASE_ALIASES[word];
             var isEnglish = /^[a-z]+$/.test(word);
             if ((isEnglish ? word.length < 3 : word.length < 2) || isStopWord(word)) return;
             words[word] = (words[word] || 0) + 1;
@@ -1701,10 +1747,10 @@ function initComboMenu() {
                 }
             }
 
-            var pFreq = {}, mFreq = {};
+            var pFreq = {}, mFreq = {}, pVariants = {}, mVariants = {};
             var processed = 0;
             for (var pi = 0; pi < partnerMsgs.length; pi++) {
-                mergeFreq(pFreq, tokenize(partnerMsgs[pi].text));
+                mergeFreq(pFreq, tokenize(partnerMsgs[pi].text, pVariants));
                 processed += 1;
                 if (processed % 120 === 0) {
                     await nextFrame();
@@ -1712,7 +1758,7 @@ function initComboMenu() {
                 }
             }
             for (var ui = 0; ui < myMsgs.length; ui++) {
-                mergeFreq(mFreq, tokenize(myMsgs[ui].text));
+                mergeFreq(mFreq, tokenize(myMsgs[ui].text, mVariants));
                 processed += 1;
                 if (processed % 120 === 0) {
                     await nextFrame();
@@ -1722,6 +1768,9 @@ function initComboMenu() {
             var aFreq = {};
             mergeFreq(aFreq, pFreq);
             mergeFreq(aFreq, mFreq);
+            var aVariants = {};
+            mergeVariants(aVariants, pVariants);
+            mergeVariants(aVariants, mVariants);
             cached = {
                 key: cacheKey,
                 partnerTotal: partnerTotal,
@@ -1729,6 +1778,7 @@ function initComboMenu() {
                 sampled: sampled,
                 pTop: topWords(pFreq, 60), mTop: topWords(mFreq, 60), aTop: topWords(aFreq, 60),
                 pLow: leastWords(pFreq, 10), mLow: leastWords(mFreq, 10), aLow: leastWords(aFreq, 10),
+                pVariants: pVariants, mVariants: mVariants, aVariants: aVariants,
                 pUnique: Object.keys(pFreq).length,
                 mUnique: Object.keys(mFreq).length,
                 aUnique: Object.keys(aFreq).length
@@ -1744,12 +1794,22 @@ function initComboMenu() {
         var cur = container._currentView || 'all';
 
         function data(v) {
-            if (v === 'partner') return { words: pTop, low: cached.pLow, total: partnerTotal, unique: cached.pUnique };
-            if (v === 'me')      return { words: mTop, low: cached.mLow, total: myTotal, unique: cached.mUnique };
-            return { words: aTop, low: cached.aLow, total: partnerTotal + myTotal, unique: cached.aUnique };
+            if (v === 'partner') return { words: pTop, low: cached.pLow, variants: cached.pVariants, total: partnerTotal, unique: cached.pUnique };
+            if (v === 'me')      return { words: mTop, low: cached.mLow, variants: cached.mVariants, total: myTotal, unique: cached.mUnique };
+            return { words: aTop, low: cached.aLow, variants: cached.aVariants, total: partnerTotal + myTotal, unique: cached.aUnique };
         }
 
-        function renderRank(words) {
+        function variantBreakdown(word, variants) {
+            var group = variants && variants[word];
+            if (!group) return '';
+            var entries = Object.entries(group).sort(function(a, b) { return b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'); });
+            if (entries.length === 1 && entries[0][0] === word) return '';
+            var visible = entries.slice(0, 5).map(function(entry) { return entry[0] + ' ' + entry[1] + '次'; });
+            if (entries.length > 5) visible.push('其他 ' + (entries.length - 5) + ' 种');
+            return visible.join(' · ');
+        }
+
+        function renderRank(words, variants) {
             var el = container.querySelector('.wc-rank-list');
             if (!el) return;
             if (!words.length) { el.innerHTML = '<div class="wc-rank-empty">暂无数据</div>'; return; }
@@ -1762,13 +1822,16 @@ function initComboMenu() {
                 var numStyle = i < 3
                     ? 'color:rgb('+rgb[0]+','+rgb[1]+','+rgb[2]+');font-weight:700;'
                     : 'color:var(--text-secondary);font-weight:500;';
-                return '<div class="wc-rank-item">'
+                var details = variantBreakdown(item.word, variants);
+                return '<div class="wc-rank-entry"><div class="wc-rank-item">'
                     + '<span class="wc-rank-num" style="'+numStyle+'">' + (i < 9 ? '0'+(i+1) : i+1) + '</span>'
                     + '<span class="wc-rank-word">' + escapeWordCloudHtml(item.word) + '</span>'
                     + '<div class="wc-rank-bar-wrap">'
                     +   '<div class="wc-rank-bar" style="width:'+pct+'%;background:rgba('+rgb[0]+','+rgb[1]+','+rgb[2]+','+(0.2+pct/100*0.6)+');"></div>'
                     + '</div>'
                     + '<span class="wc-rank-count">' + item.count + '次</span>'
+                    + '</div>'
+                    + (details ? '<div class="wc-variant-line">' + escapeWordCloudHtml(details) + '</div>' : '')
                     + '</div>';
             }).join('');
         }
@@ -1784,7 +1847,7 @@ function initComboMenu() {
             if (typeof showNotification === 'function') showNotification('已从词云统计移除：' + word, 'success');
         }
 
-        function renderLow(words) {
+        function renderLow(words, variants) {
             var el = container.querySelector('.wc-low-list');
             if (!el) return;
             el.replaceChildren();
@@ -1800,7 +1863,13 @@ function initComboMenu() {
                 var remove = document.createElement('button'); remove.type = 'button'; remove.className = 'wc-low-remove';
                 remove.textContent = '移除'; remove.setAttribute('aria-label', '从词云移除 ' + item.word);
                 remove.addEventListener('click', function() { removeFromStats(item.word); });
-                row.append(num, word, count, remove); el.appendChild(row);
+                row.append(num, word, count, remove);
+                var details = variantBreakdown(item.word, variants);
+                if (details) {
+                    var detail = document.createElement('small'); detail.className = 'wc-low-variant'; detail.textContent = details;
+                    row.appendChild(detail);
+                }
+                el.appendChild(row);
             });
         }
 
@@ -1824,8 +1893,8 @@ function initComboMenu() {
             if (!canvas) return;
             var d = data(v);
             drawWordCloud(canvas, d.words);
-            renderRank(d.words);
-            renderLow(d.low);
+            renderRank(d.words, d.variants);
+            renderLow(d.low, d.variants);
             renderSummary(d);
         }
 
@@ -1856,7 +1925,7 @@ function initComboMenu() {
                 + '</div>'
                 + '<div class="wc-rank-section wc-low-section">'
                 +   '<div class="wc-rank-title"><i class="fas fa-arrow-down"></i> 使用最少 10 个</div>'
-                +   '<div class="wc-low-note">次数为本次统计样本中的真实出现次数；移除不会删除聊天记录。</div>'
+                +   '<div class="wc-low-note">相近亲密表达会合并，否定表达单独统计。次数为样本中的真实出现次数；移除不会删除聊天记录。</div>'
                 +   '<div class="wc-low-list"></div>'
                 + '</div>';
 
