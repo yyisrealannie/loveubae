@@ -1434,6 +1434,17 @@ function initComboMenu() {
     var activeBlacklist = new Set();
     var wordCloudRenderVersion = 0;
     var chineseSegmenter = null;
+    var PHRASE_ALIASES = {
+        'milkhugtoken': '抱抱',
+        'milknohugtoken': '不要抱抱',
+        'milkkisstoken': '亲亲',
+        'milknokisstoken': '不要亲亲',
+        'milkmisstoken': '想你',
+        'milknomisstoken': '不想你',
+        'milklovetoken': '爱你',
+        'milknolovetoken': '不爱你',
+        'milkdisliketoken': '不喜欢'
+    };
     try {
         if (typeof Intl !== 'undefined' && Intl.Segmenter) {
             chineseSegmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' });
@@ -1464,9 +1475,21 @@ function initComboMenu() {
             .replace(/<[^>]+>/g, '')
             .replace(/[^\u3400-\u9fffa-zA-Z]/g, ' ')
             .toLowerCase();
+        // 先保护否定表达，再合并含义明确的亲密说法；避免“不喜欢”被算成“喜欢”。
+        cleaned = cleaned
+            .replace(/(?:不想|不要|别|不许|不能|不可以|不准)(?:再|让|给|和|跟|你|我)*?(?:抱抱|抱我|抱一下|抱一抱)/g, ' milknohugtoken ')
+            .replace(/(?:不想|不要|别|不许|不能|不可以|不准)(?:再|让|给|你|我)*?(?:亲亲|亲一下|亲一口|亲一个|么么哒)/g, ' milknokisstoken ')
+            .replace(/(?:不想你|不想念你|别想我)/g, ' milknomisstoken ')
+            .replace(/(?:不爱你|不再爱你|不喜欢你了)/g, ' milknolovetoken ')
+            .replace(/(?:不太喜欢|不怎么喜欢|不喜欢)/g, ' milkdisliketoken ')
+            .replace(/(?:我)?(?:好想|想要|想|要|给我|来个|来一个|求)?(?:你)?(?:抱抱|抱我|抱一下|抱一抱)/g, ' milkhugtoken ')
+            .replace(/(?:我)?(?:好想|想要|想|要|给我|来个|来一个|求)?(?:你)?(?:亲亲|亲一下|亲一口|亲一个|么么哒)|\bmua+\b/g, ' milkkisstoken ')
+            .replace(/(?:我)?(?:好想你|想你|想念你|思念你)/g, ' milkmisstoken ')
+            .replace(/(?:我)?(?:好爱你|最爱你|爱你)/g, ' milklovetoken ');
         var words = {};
         function add(word) {
             word = String(word || '').trim().toLowerCase();
+            if (PHRASE_ALIASES[word]) word = PHRASE_ALIASES[word];
             var isEnglish = /^[a-z]+$/.test(word);
             if ((isEnglish ? word.length < 3 : word.length < 2) || isStopWord(word)) return;
             words[word] = (words[word] || 0) + 1;
@@ -1856,7 +1879,7 @@ function initComboMenu() {
                 + '</div>'
                 + '<div class="wc-rank-section wc-low-section">'
                 +   '<div class="wc-rank-title"><i class="fas fa-arrow-down"></i> 使用最少 10 个</div>'
-                +   '<div class="wc-low-note">次数为本次统计样本中的真实出现次数；移除不会删除聊天记录。</div>'
+                +   '<div class="wc-low-note">相近亲密表达会合并，否定表达单独统计。次数为样本中的真实出现次数；移除不会删除聊天记录。</div>'
                 +   '<div class="wc-low-list"></div>'
                 + '</div>';
 
