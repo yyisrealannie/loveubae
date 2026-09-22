@@ -1,21 +1,29 @@
 document.addEventListener('DOMContentLoaded', async () => {
+    const welcomeStartedAt = performance.now();
+    const minimumWelcomeDuration = 4200;
+    let welcomeHideTimer = null;
     const loaderBar = document.getElementById('loader-tech-bar');
-    const welcomeSubtitle = document.querySelector('.welcome-subtitle-scramble');
+    const loaderStatusText = document.getElementById('loader-status-text');
     const welcomeScreen = document.getElementById('welcome-animation');
     const disclaimerModal = document.getElementById('disclaimer-modal');
     const acceptDisclaimerBtn = document.getElementById('accept-disclaimer');
 
     const updateLoader = (text, width) => {
-        if (welcomeSubtitle) welcomeSubtitle.textContent = text;
+        if (loaderStatusText) loaderStatusText.textContent = text;
         if (loaderBar) loaderBar.style.width = width;
     };
 
     const hideWelcomeScreen = () => {
         if (!welcomeScreen) return;
-        welcomeScreen.classList.add('hidden');
-        setTimeout(() => {
-            welcomeScreen.style.display = 'none';
-        }, 800);
+        if (welcomeScreen.classList.contains('hidden') || welcomeHideTimer) return;
+        const remaining = Math.max(0, minimumWelcomeDuration - (performance.now() - welcomeStartedAt));
+        welcomeHideTimer = setTimeout(() => {
+            welcomeHideTimer = null;
+            welcomeScreen.classList.add('hidden');
+            setTimeout(() => {
+                welcomeScreen.style.display = 'none';
+            }, 800);
+        }, remaining);
     };
 
     const safeAwait = async (promise, fallback = null) => {

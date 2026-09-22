@@ -5,8 +5,15 @@
   const MAX_SOURCE_BYTES = 30 * 1024 * 1024;
   const MAX_GIF_BYTES = 8 * 1024 * 1024;
   const MAX_BATCH_UPLOAD = 30;
+  const QUERY_PAGE_SIZE = 500;
+  const GALLERY_PAGE_SIZE = 60;
+  const FEED_PAGE_SIZE = 15;
+  const PICKER_LIMIT = 60;
+  const STICKER_PICKER_LIMIT = 24;
   let db, user, config, posts = [], comments = [], media = [], tab = 'feed', screen;
   let libraryReady = false, librarySyncTimer = null, librarySyncPromise = null;
+  let galleryFilter = 'all', gallerySort = 'newest', galleryVisibleCount = GALLERY_PAGE_SIZE;
+  let feedVisibleCount = FEED_PAGE_SIZE;
   const urlCache = new Map();
   const $ = (selector, root = screen) => root.querySelector(selector);
   function node(tag, className, text) {
@@ -38,6 +45,12 @@
     const kind = item?.kind === 'sticker' ? '表情包' : '照片';
     const date = item?.created_at ? new Date(item.created_at).toLocaleDateString() : '';
     return `${kind}${fallbackIndex ? ` ${fallbackIndex}` : ''}${date ? ` · ${date}` : ''}`;
+  }
+  function albumName(item) {
+    return String(item?.album_name || '未分类').trim().slice(0, 40) || '未分类';
+  }
+  function normalizeAlbum(value) {
+    return String(value || '').trim().slice(0, 40) || '未分类';
   }
   function notify(text, type = 'success') {
     if (typeof window.showNotification === 'function') window.showNotification(text, type, 5000);
@@ -102,7 +115,7 @@
       URL.revokeObjectURL(sourceUrl);
     }
   }
-  async function uploadMediaFile(file, kind, allowAuto = false, silent = false) {
+  async function uploadMediaFile(file, kind, allowAuto = false, silent = false, album = '未分类') {
     const prepared = await prepareImage(file);
     const objectPath = `${user.id}/${crypto.randomUUID()}.${prepared.extension}`;
     await checked(db.storage.from(bucket).upload(objectPath, prepared.blob, { contentType: prepared.mime, upsert: false }));
@@ -113,7 +126,8 @@
         object_path: objectPath,
         kind,
         allow_auto: allowAuto,
-        display_name: originalName
+        display_name: originalName,
+        album_name: normalizeAlbum(album)
       }).select().single());
       if (!silent) {
         if (prepared.compressed) notify(`已自动压缩：${formatBytes(prepared.originalSize)} → ${formatBytes(prepared.blob.size)}`);
@@ -166,14 +180,26 @@
     clearTimeout(librarySyncTimer);
     librarySyncTimer = setTimeout(() => syncCards().catch(error => console.warn('[moments] 字卡库自动更新失败:', error)), 1200);
   }
+  async function loadRows(table, configure) {
+    const rows = [];
+    for (let from = 0; ; from += QUERY_PAGE_SIZE) {
+      let query = db.from(table).select('*').eq('user_id', user.id);
+      query = configure(query).range(from, from + QUERY_PAGE_SIZE - 1);
+      const page = await checked(query);
+      rows.push(...page);
+      if (page.length < QUERY_PAGE_SIZE) break;
+    }
+    return rows;
+  }
   async function refresh() {
-    [config, media, posts] = await Promise.all([
+    [config, media, posts, comments] = await Promise.all([
       checked(db.from('milk_moments_config').select('*').eq('user_id', user.id).maybeSingle()),
-      checked(db.from('milk_moments_media').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(150)),
-      checked(db.from('milk_moments_posts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(100)),
+      loadRows('milk_moments_media', query => query.order('created_at', { ascending: false }).order('id', { ascending: false })),
+      loadRows('milk_moments_posts', query => query.order('created_at', { ascending: false }).order('id', { ascending: false })),
+      loadRows('milk_moments_comments', query => query.order('created_at', { ascending: true }).order('id', { ascending: true })),
     ]);
-    if (posts.length) comments = await checked(db.from('milk_moments_comments').select('*').in('post_id', posts.map(p => p.id)).order('created_at').limit(1000));
-    else comments = [];
+    const validPaths = new Set(media.map(item => item.object_path));
+    for (const path of urlCache.keys()) if (!validPaths.has(path)) urlCache.delete(path);
   }
   async function imageFor(mediaId) {
     if (!mediaId) return null;
@@ -207,7 +233,7 @@
     const empty = button('无图', () => choose(empty, ''));
     empty.className = 'moments-photo-choice selected moments-photo-none';
     picker.append(empty);
-    media.filter(item => item.kind === 'photo').forEach((item, index) => {
+    media.filter(item => item.kind === 'photo').slice(0, PICKER_LIMIT).forEach((item, index) => {
       const choice = button('', () => choose(choice, item.id));
       choice.className = 'moments-photo-choice';
       choice.title = mediaName(item, index + 1);
@@ -237,7 +263,7 @@
     empty.title = '不使用表情包';
     picker.append(empty);
 
-    media.filter(item => item.kind === 'sticker').forEach(item => {
+    media.filter(item => item.kind === 'sticker').slice(0, STICKER_PICKER_LIMIT).forEach(item => {
       const choice = button('', () => choose(choice, item.id));
       choice.className = 'moments-sticker-choice';
       choice.title = '私密图库表情';
@@ -249,7 +275,7 @@
     });
 
     const chatStickers = typeof myStickerLibrary !== 'undefined' && Array.isArray(myStickerLibrary) ? myStickerLibrary : [];
-    chatStickers.forEach((source, index) => {
+    chatStickers.slice(0, STICKER_PICKER_LIMIT).forEach((source, index) => {
       const choice = button('', () => choose(choice, `chat:${index}`));
       choice.className = 'moments-sticker-choice';
       choice.title = `我的表情 ${index + 1}`;
@@ -283,7 +309,7 @@
     if (!item) {
       await checked(db.storage.from(bucket).upload(objectPath, blob, { contentType: mime, upsert: false }));
       try {
-        item = await checked(db.from('milk_moments_media').insert({ user_id: user.id, object_path: objectPath, kind: 'sticker', allow_auto: false, display_name: `我的表情 ${index + 1}` }).select().single());
+        item = await checked(db.from('milk_moments_media').insert({ user_id: user.id, object_path: objectPath, kind: 'sticker', allow_auto: false, display_name: `我的表情 ${index + 1}`, album_name: '聊天表情' }).select().single());
       } catch (error) {
         await db.storage.from(bucket).remove([objectPath]);
         throw error;
@@ -340,7 +366,7 @@
       try {
         let mediaId = photo.value;
         if (directFile) {
-          const uploaded = await uploadMediaFile(directFile, 'photo', false);
+          const uploaded = await uploadMediaFile(directFile, 'photo', true, false, '动态配图');
           media.unshift(uploaded);
           mediaId = uploaded.id;
         }
@@ -364,7 +390,13 @@
     );
     root.append(compose);
     if (!posts.length) root.append(note('这里还没有动态。可以先写下你们的第一个瞬间。'));
-    for (const post of posts) {
+    const commentsByPost = new Map();
+    comments.forEach(comment => {
+      const thread = commentsByPost.get(comment.post_id) || [];
+      thread.push(comment);
+      commentsByPost.set(comment.post_id, thread);
+    });
+    for (const post of posts.slice(0, feedVisibleCount)) {
       const card = node('article', 'moments-card');
       const own = post.author === 'self';
       const name = own ? (document.getElementById('my-name')?.textContent || '我').trim() : config?.partner_name || '他';
@@ -380,7 +412,7 @@
           await refresh(); renderShell();
         } catch (e) { alertError(e); }
       })));
-      const thread = comments.filter(x => x.post_id === post.id);
+      const thread = commentsByPost.get(post.id) || [];
       for (const comment of thread) {
         const entry = node('div', 'moments-comment');
         entry.append(node('strong', '', comment.author === 'self' ? '我：' : `${config?.partner_name || '他'}：`), node('span', '', comment.body));
@@ -406,11 +438,24 @@
       if (thread.filter(x => x.author === 'partner').length >= 10) card.append(note('这条动态已达到最多 10 次自动回复，你还可以继续留言。'));
       root.append(card);
     }
+    if (posts.length > feedVisibleCount) {
+      root.append(row(button(`再看 ${Math.min(FEED_PAGE_SIZE, posts.length - feedVisibleCount)} 条旧动态`, () => {
+        feedVisibleCount += FEED_PAGE_SIZE;
+        renderShell();
+      })));
+    }
   }
   function renderGallery(root) {
     const upload = node('input'); upload.type = 'file'; upload.accept = 'image/*'; upload.multiple = true;
     const type = field('select'); type.append(new Option('照片', 'photo'), new Option('表情包', 'sticker'));
-    const allow = node('input'); allow.type = 'checkbox';
+    const allow = node('input'); allow.type = 'checkbox'; allow.checked = true;
+    const albums = [...new Set(media.map(albumName))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    const albumListId = 'moments-album-list';
+    const albumList = node('datalist'); albumList.id = albumListId;
+    albums.forEach(value => albumList.append(new Option(value, value)));
+    const uploadAlbum = field('input', '相册分类，如：旅行');
+    uploadAlbum.value = '未分类'; uploadAlbum.maxLength = 40;
+    uploadAlbum.setAttribute('list', albumListId);
     const uploadButton = button('批量上传', async () => {
       const files = Array.from(upload.files || []);
       if (!files.length) return alertError('请先选择图片');
@@ -422,7 +467,7 @@
         const file = files[index];
         uploadButton.textContent = `正在上传 ${index + 1}/${files.length}`;
         try {
-          await uploadMediaFile(file, type.value, allow.checked, true);
+          await uploadMediaFile(file, type.value, allow.checked, true, uploadAlbum.value);
           success += 1;
         } catch (error) {
           failures.push(`${file.name || `第 ${index + 1} 张`}：${errorText(error)}`);
@@ -444,39 +489,85 @@
       const count = upload.files?.length || 0;
       uploadButton.textContent = count ? `上传 ${count} 张` : '批量上传';
     });
-    root.append(row(upload, type, node('label', '', '允许他自动使用'), allow, uploadButton));
+    const uploadBox = node('div', 'moments-card moments-gallery-upload');
+    const allowLabel = node('label', 'moments-check-label', '默认允许他使用'); allowLabel.prepend(allow);
+    uploadBox.append(node('div', 'moments-person', '添加到小相册'), upload, row(type, uploadAlbum), allowLabel, uploadButton, albumList);
+    root.append(uploadBox);
+
+    const filter = field('select');
+    filter.append(new Option('全部相册', 'all'));
+    albums.forEach(value => filter.append(new Option(value, value)));
+    filter.value = albums.includes(galleryFilter) ? galleryFilter : 'all';
+    const sort = field('select');
+    sort.append(new Option('最新上传', 'newest'), new Option('最早上传', 'oldest'), new Option('按名称', 'name'));
+    sort.value = gallerySort;
+    const rerenderGallery = () => {
+      galleryFilter = filter.value;
+      gallerySort = sort.value;
+      galleryVisibleCount = GALLERY_PAGE_SIZE;
+      renderShell();
+    };
+    filter.addEventListener('change', rerenderGallery);
+    sort.addEventListener('change', rerenderGallery);
+    root.append(row(filter, sort));
+
+    let shown = media.filter(item => galleryFilter === 'all' || albumName(item) === galleryFilter);
+    shown.sort((a, b) => {
+      if (gallerySort === 'oldest') return new Date(a.created_at) - new Date(b.created_at);
+      if (gallerySort === 'name') return mediaName(a).localeCompare(mediaName(b), 'zh-CN');
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+    if (!shown.length) root.append(note(galleryFilter === 'all' ? '相册还是空的。' : '这个分类里还没有图片。'));
     const gallery = node('div', 'moments-gallery'); root.append(gallery);
-    for (const [index, item] of media.entries()) {
-      const card = node('div', 'moments-gallery-item moments-card');
-      appendImage(card, item.id);
+    for (const [index, item] of shown.slice(0, galleryVisibleCount).entries()) {
+      const card = node('article', 'moments-gallery-item');
+      const thumb = button('', () => card.classList.toggle('expanded'));
+      thumb.className = 'moments-gallery-thumb';
+      thumb.setAttribute('aria-label', `打开 ${mediaName(item, index + 1)} 的设置`);
+      appendImage(thumb, item.id);
+      const caption = node('div', 'moments-gallery-caption');
+      caption.append(node('strong', '', mediaName(item, index + 1)), node('span', '', albumName(item)));
+      const details = node('div', 'moments-gallery-details');
       const name = field('input', '给这张图片起个名字');
       name.value = mediaName(item, index + 1);
       name.maxLength = 80;
-      const saveName = button('保存名称', async () => {
+      const itemAlbum = field('input', '相册分类');
+      itemAlbum.value = albumName(item); itemAlbum.maxLength = 40;
+      itemAlbum.setAttribute('list', albumListId);
+      const saveName = button('保存', async () => {
         const value = name.value.trim().slice(0, 80);
         if (!value) return alertError('图片名称不能为空');
         try {
-          await checked(db.from('milk_moments_media').update({ display_name: value }).eq('id', item.id));
+          const nextAlbum = normalizeAlbum(itemAlbum.value);
+          await checked(db.from('milk_moments_media').update({ display_name: value, album_name: nextAlbum }).eq('id', item.id).eq('user_id', user.id));
           item.display_name = value;
+          item.album_name = nextAlbum;
           saveName.textContent = '已保存';
-          setTimeout(() => { if (saveName.isConnected) saveName.textContent = '保存名称'; }, 1200);
+          caption.querySelector('strong').textContent = value;
+          caption.querySelector('span').textContent = nextAlbum;
+          setTimeout(() => { if (saveName.isConnected) saveName.textContent = '保存'; }, 1200);
         } catch (e) { alertError(e); }
       });
       const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.checked = item.allow_auto;
       checkbox.addEventListener('change', async () => {
-        try { await checked(db.from('milk_moments_media').update({ allow_auto: checkbox.checked }).eq('id', item.id)); item.allow_auto = checkbox.checked; }
+        try { await checked(db.from('milk_moments_media').update({ allow_auto: checkbox.checked }).eq('id', item.id).eq('user_id', user.id)); item.allow_auto = checkbox.checked; }
         catch (e) { checkbox.checked = !checkbox.checked; alertError(e); }
       });
       const label = node('label', '', `${item.kind === 'sticker' ? '表情包' : '照片'} · 允许他使用`); label.prepend(checkbox);
-      card.append(name, saveName, label, button('删除', async () => {
+      details.append(name, itemAlbum, row(saveName, button('删除', async () => {
         if (!window.confirm('删除这张私密图片？动态中的图片也将不再显示。')) return;
         try {
           await checked(db.from('milk_moments_media').delete().eq('id', item.id));
           await checked(db.storage.from(bucket).remove([item.object_path]));
           urlCache.delete(item.object_path); await refresh(); renderShell();
         } catch (e) { alertError(e); }
-      })); gallery.append(card);
+      })), label);
+      card.append(thumb, caption, details); gallery.append(card);
     }
+    if (shown.length > galleryVisibleCount) root.append(row(button(`再显示 ${Math.min(GALLERY_PAGE_SIZE, shown.length - galleryVisibleCount)} 张`, () => {
+      galleryVisibleCount += GALLERY_PAGE_SIZE;
+      renderShell();
+    })));
   }
   async function open() {
     ensure(); screen.classList.add('open'); body().replaceChildren(note('正在加载…'));

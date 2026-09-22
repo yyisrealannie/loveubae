@@ -523,23 +523,34 @@ if (_chatSettingsEl) _chatSettingsEl.addEventListener('click', () => {
                 (async function calcDmStorage() {
                     try {
                         let total = 0, msgsSize = 0, settingsSize = 0, mediaSize = 0;
+                        const roughBytes = (value, seen = new WeakSet()) => {
+                            if (value == null) return 0;
+                            if (typeof value === 'string') return value.length * 2;
+                            if (typeof value === 'number' || typeof value === 'boolean') return 8;
+                            if (value instanceof Date) return 24;
+                            if (typeof value !== 'object' || seen.has(value)) return 0;
+                            seen.add(value);
+                            if (Array.isArray(value)) return value.reduce((sum, item) => sum + roughBytes(item, seen), 0);
+                            return Object.entries(value).reduce((sum, entry) => sum + entry[0].length * 2 + roughBytes(entry[1], seen), 0);
+                        };
                         const keys = await localforage.keys();
                         for (const k of keys) {
                             const raw = await localforage.getItem(k);
-                            const str = typeof raw === 'string' ? raw : JSON.stringify(raw);
-                            const bytes = new Blob([str]).size;
+                            const bytes = roughBytes(raw);
                             total += bytes;
                             if (/messages|msgs/i.test(k)) msgsSize += bytes;
                             else if (/avatar|image|photo|bg|background|wallpaper/i.test(k)) mediaSize += bytes;
                             else settingsSize += bytes;
                         }
                         const fmt = b => b > 1048576 ? (b/1048576).toFixed(1)+'MB' : b > 1024 ? (b/1024).toFixed(0)+'KB' : b+'B';
-                        const MAX = 5 * 1024 * 1024;
-                        const pct = Math.min(100, Math.round(total / MAX * 100));
+                        const estimate = navigator.storage?.estimate ? await navigator.storage.estimate() : null;
+                        const usage = Number(estimate?.usage) || total;
+                        const quota = Number(estimate?.quota) || 0;
+                        const pct = quota ? Math.min(100, Math.round(usage / quota * 100)) : 0;
                         const barEl = document.getElementById('dm-storage-bar');
                         const totalEl = document.getElementById('dm-storage-total');
                         if (barEl) barEl.style.width = pct + '%';
-                        if (totalEl) totalEl.textContent = fmt(total);
+                        if (totalEl) totalEl.textContent = quota ? `${fmt(usage)} / ${fmt(quota)}` : fmt(total);
                         const msgsEl = document.getElementById('dm-stat-msgs');
                         const setEl = document.getElementById('dm-stat-settings');
                         const medEl = document.getElementById('dm-stat-media');
