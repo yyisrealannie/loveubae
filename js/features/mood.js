@@ -763,27 +763,91 @@ function exportMoodBackup() {
 
 async function importMoodBackupFile(file) {
     if (!file) return;
-    const text = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsText(file);
-    });
-
-    let data = null;
-    try {
-        data = JSON.parse(text);
-    } catch (e) {
-        showNotification('导入文件格式不正确', 'error');
+    if (file.size > 220 * 1024 * 1024) {
+        showNotification('文件过大，请确认选择的是备份文件', 'error');
         return;
     }
 
-    if (!data || typeof data !== 'object') {
+    let rawData = null;
+    try {
+        if (typeof ChatBackup !== 'undefined' && ChatBackup.loadBackupFromFile) {
+            rawData = await ChatBackup.loadBackupFromFile(file);
+        } else {
+            let text = await file.text();
+            if (text.length && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+            rawData = JSON.parse(text);
+        }
+    } catch (e) {
+        console.error('心晴手账文件读取失败:', e);
+        showNotification('无法读取这个文件，请选择 JSON 或 ZIP 备份', 'error');
+        return;
+    }
+
+    const data = normalizeMoodImportPayload(rawData);
+    if (!data) {
+        showNotification('文件里没有找到心晴日历数据', 'error');
+        return;
+    }
+
+    if (typeof data !== 'object') {
         showNotification('导入文件无效', 'error');
         return;
     }
 
     _showMoodImportPicker(data);
+}
+
+function parseMoodBackupValue(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== 'string') return value;
+    try { return JSON.parse(value); } catch (_) { return value; }
+}
+
+function moodValueFromStore(store, suffixes) {
+    if (!store || typeof store !== 'object') return null;
+    const keys = Object.keys(store);
+    for (const suffix of suffixes) {
+        if (Object.prototype.hasOwnProperty.call(store, suffix)) {
+            return parseMoodBackupValue(store[suffix]);
+        }
+        const matched = keys.find(key => key === suffix || key.endsWith(`_${suffix}`));
+        if (matched) return parseMoodBackupValue(store[matched]);
+    }
+    return null;
+}
+
+function normalizeMoodImportPayload(rawData) {
+    if (!rawData || typeof rawData !== 'object') return null;
+
+    const wrappers = [rawData, rawData.data, rawData.payload, rawData.backup]
+        .filter(item => item && typeof item === 'object');
+    const stores = [];
+    wrappers.forEach(item => {
+        stores.push(item);
+        if (item.localforage && typeof item.localforage === 'object') stores.push(item.localforage);
+        if (item.indexedDB && typeof item.indexedDB === 'object') stores.push(item.indexedDB);
+        if (item.localStorage && typeof item.localStorage === 'object') stores.push(item.localStorage);
+    });
+
+    let calendar = null;
+    let custom = null;
+    let trash = null;
+    for (const store of stores) {
+        if (!calendar) calendar = moodValueFromStore(store, ['moodCalendar', 'moodData']);
+        if (!custom) custom = moodValueFromStore(store, ['customMoodOptions', 'customMoods']);
+        if (!trash) trash = moodValueFromStore(store, ['moodTrash']);
+    }
+
+    const validCalendar = calendar && typeof calendar === 'object' && !Array.isArray(calendar);
+    const validCustom = Array.isArray(custom);
+    const validTrash = Array.isArray(trash);
+    if (!validCalendar && !validCustom && !validTrash) return null;
+
+    return {
+        moodCalendar: validCalendar ? calendar : null,
+        customMoodOptions: validCustom ? custom : null,
+        moodTrash: validTrash ? trash : null
+    };
 }
 
 function _showMoodImportPicker(data) {
@@ -832,7 +896,7 @@ function _showMoodImportPicker(data) {
     const moodImpCancelBtn = document.getElementById('mood-imp-cancel');
     const moodImpConfirmBtn = document.getElementById('mood-imp-confirm');
     if (moodImpCancelBtn) moodImpCancelBtn.onclick = () => overlay.remove();
-    if (moodImpConfirmBtn) moodImpConfirmBtn.onclick = () => {
+    if (moodImpConfirmBtn) moodImpConfirmBtn.onclick = async () => {
         const selCal = document.getElementById('mood-imp-cal').checked;
         const selCustom = document.getElementById('mood-imp-custom').checked;
         const selTrash = document.getElementById('mood-imp-trash').checked;
@@ -843,11 +907,15 @@ function _showMoodImportPicker(data) {
         }
 
         try {
+            const nextMoodData = Object.assign({}, moodData);
+            let nextCustomMoodOptions = customMoodOptions;
+            let nextMoodTrash = moodTrash;
+
             if (selCal && hasCalendar) {
                 Object.keys(data.moodCalendar).forEach(dateStr => {
-                    if (!moodData[dateStr]) moodData[dateStr] = {};
+                    if (!nextMoodData[dateStr]) nextMoodData[dateStr] = {};
                     if (data.moodCalendar[dateStr] && typeof data.moodCalendar[dateStr] === 'object') {
-                        Object.assign(moodData[dateStr], data.moodCalendar[dateStr]);
+                        nextMoodData[dateStr] = Object.assign({}, nextMoodData[dateStr], data.moodCalendar[dateStr]);
                     }
                 });
             }
@@ -856,22 +924,28 @@ function _showMoodImportPicker(data) {
                 const map = new Map();
                 (customMoodOptions || []).forEach(m => map.set(m.key, m));
                 data.customMoodOptions.forEach(m => map.set(m.key, m));
-                customMoodOptions = [...map.values()];
+                nextCustomMoodOptions = [...map.values()];
             }
 
             if (selTrash && hasTrash) {
                 const map = new Map();
                 (moodTrash || []).forEach(t => map.set(String(t.id), t));
                 data.moodTrash.forEach(t => map.set(String(t.id), t));
-                moodTrash = [...map.values()];
+                nextMoodTrash = [...map.values()];
             }
+
+            const writes = [];
+            if (selCal && hasCalendar) writes.push(localforage.setItem(getStorageKey('moodCalendar'), nextMoodData));
+            if (selCustom && hasCustom) writes.push(localforage.setItem(getStorageKey('customMoodOptions'), nextCustomMoodOptions));
+            if (selTrash && hasTrash) writes.push(localforage.setItem(getStorageKey('moodTrash'), nextMoodTrash));
+            await Promise.all(writes);
+
+            moodData = nextMoodData;
+            customMoodOptions = nextCustomMoodOptions;
+            moodTrash = nextMoodTrash;
 
             window.moodData = moodData;
             window.moodTrash = moodTrash;
-
-            saveMoodData();
-            saveCustomMoodOptions();
-            saveMoodTrash();
 
             renderMoodCalendar();
             renderMoodTrashList();
@@ -1304,6 +1378,9 @@ function initMoodListeners() {
             if (!file) return;
             try {
                 await importMoodBackupFile(file);
+            } catch (error) {
+                console.error('心晴手账导入失败:', error);
+                showNotification('导入失败：' + (error && error.message ? error.message : '请重试'), 'error');
             } finally {
                 importFileInput.value = '';
             }
