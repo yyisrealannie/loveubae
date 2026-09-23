@@ -4,6 +4,8 @@
     const VAPID_PUBLIC_KEY = 'BNFR1ut7XUBWxqJGSQogCGj8fuPBn-hSOsxCs51q4OiCvqVh7HOfUh2cfA1T8Eo6WYtHLNVweJzPUJ_LeuF7p0c';
     const ACTIVE_UNTIL_KEY = 'sleepPushActiveUntil';
     const DURATION_KEY = 'sleepPushDurationHours';
+    let pendingImportPromise = null;
+    let pendingImportTimer = null;
 
     function isStandalone() {
         return window.navigator.standalone === true
@@ -221,6 +223,7 @@
             if (result.error) throw result.error;
             localStorage.setItem(ACTIVE_UNTIL_KEY, String(activeUntil.getTime()));
             localStorage.setItem('notifEnabled', '1');
+            if (typeof manageAutoSendTimer === 'function') manageAutoSendTimer();
             await refreshStatus();
             if (typeof showNotification === 'function') {
                 showNotification('睡眠推送已开启 ' + hours + ' 小时；消息生成后会立即推送', 'success', 4200);
@@ -291,6 +294,7 @@
             }
             localStorage.removeItem(ACTIVE_UNTIL_KEY);
             localStorage.setItem('notifEnabled', '0');
+            if (typeof manageAutoSendTimer === 'function') manageAutoSendTimer();
             await refreshStatus();
             if (typeof showNotification === 'function') {
                 showNotification('锁屏推送已关闭；聊天记录没有删除', 'success', 3000);
@@ -302,41 +306,86 @@
         }
     }
 
-    async function importPendingMessages() {
-        try {
-            if (typeof addMessage !== 'function') return;
-            const identity = await cloudIdentity();
-            const result = await identity.client.from('milk_push_messages')
-                .select('id,body,sent_at')
-                .is('imported_at', null)
-                .order('sent_at', { ascending: true })
-                .limit(50);
-            if (result.error || !result.data || !result.data.length) return;
-            result.data.forEach(item => addMessage({
-                id: Date.parse(item.sent_at) || Date.now(),
-                sender: (typeof settings !== 'undefined' && settings.partnerName) || '对方',
-                text: item.body,
-                timestamp: new Date(item.sent_at),
-                status: 'received',
-                favorited: false,
-                note: null,
-                type: 'normal'
-            }));
-            await identity.client.from('milk_push_messages')
-                .update({ imported_at: new Date().toISOString() })
-                .in('id', result.data.map(item => item.id));
-        } catch (e) {}
+    function importPendingMessages() {
+        // DOMContentLoaded、回到前台和 Service Worker 通知可能同时触发导入。
+        // 共用同一个 Promise，保证同一批待收消息只读取、写入一次。
+        if (pendingImportPromise) return pendingImportPromise;
+        pendingImportPromise = (async function () {
+            try {
+                if (typeof addMessage !== 'function') return 0;
+                const identity = await cloudIdentity();
+                const result = await identity.client.from('milk_push_messages')
+                    .select('id,body,sent_at')
+                    .is('imported_at', null)
+                    .order('sent_at', { ascending: true })
+                    .limit(50);
+                if (result.error) throw result.error;
+                if (!result.data || !result.data.length) return 0;
+
+                let added = 0;
+                result.data.forEach(item => {
+                    const accepted = addMessage({
+                        id: Date.parse(item.sent_at) || Date.now(),
+                        // 推送表的 UUID 跨刷新、跨设备保持不变，安全同步也会沿用它。
+                        syncId: 'push:' + item.id,
+                        sender: (typeof settings !== 'undefined' && settings.partnerName) || '对方',
+                        text: item.body,
+                        timestamp: new Date(item.sent_at),
+                        status: 'received',
+                        favorited: false,
+                        note: null,
+                        type: 'normal'
+                    });
+                    if (accepted !== false) added += 1;
+                });
+
+                const update = await identity.client.from('milk_push_messages')
+                    .update({ imported_at: new Date().toISOString() })
+                    .in('id', result.data.map(item => item.id));
+                if (update.error) throw update.error;
+                return added;
+            } catch (error) {
+                console.warn('[sleep-push] 待收消息导入失败，将在下次唤醒时重试', error);
+                return 0;
+            } finally {
+                pendingImportPromise = null;
+            }
+        })();
+        return pendingImportPromise;
+    }
+
+    function schedulePendingImport(delay) {
+        if (pendingImportTimer) clearTimeout(pendingImportTimer);
+        pendingImportTimer = setTimeout(function () {
+            pendingImportTimer = null;
+            importPendingMessages();
+        }, Math.max(0, Number(delay) || 0));
     }
 
     window.SleepPush = { enable, disable, test, setDuration, setPushInterval, refreshStatus, syncProfile, importPendingMessages };
     document.addEventListener('DOMContentLoaded', function () {
         refreshStatus();
-        setTimeout(importPendingMessages, 3500);
+        // 原来等待 3.5 秒，造成系统通知已到而聊天页仍迟迟不显示。
+        schedulePendingImport(250);
     });
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') {
             refreshStatus();
-            setTimeout(importPendingMessages, 800);
+            schedulePendingImport(0);
         }
     });
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('message', function (event) {
+            if (event.data && event.data.type === 'milk-push-arrived') {
+                // Edge Function 在推送成功后紧接着落库，稍候片刻读取；互斥锁会挡住并发。
+                if (pendingImportTimer) clearTimeout(pendingImportTimer);
+                pendingImportTimer = setTimeout(async function () {
+                    pendingImportTimer = null;
+                    const added = await importPendingMessages();
+                    // 极少数网络下通知会比数据库落库快，再补一次即可。
+                    if (added === 0) schedulePendingImport(1200);
+                }, 450);
+            }
+        });
+    }
 })();

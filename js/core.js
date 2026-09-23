@@ -787,6 +787,18 @@ function manageAutoSendTimer() {
         clearInterval(autoSendTimer);
         autoSendTimer = null;
     }
+    // 锁屏推送已由云端按同一频率生成消息。此时若本地计时器也继续运行，
+    // App 回到前台时可能同时补发一条，看起来像重复消息。
+    const cloudPushIsActive = Number(localStorage.getItem('sleepPushActiveUntil') || 0) > Date.now();
+    if (cloudPushIsActive) {
+        const remaining = Number(localStorage.getItem('sleepPushActiveUntil')) - Date.now();
+        // 推送时段自然结束后恢复本地主动发送，无需用户重新开关。
+        autoSendTimer = setTimeout(() => {
+            autoSendTimer = null;
+            manageAutoSendTimer();
+        }, Math.min(remaining + 1000, 2147483647));
+        return;
+    }
     if (settings.autoSendEnabled) {
         const intervalMs = settings.autoSendInterval * 60 * 1000;
         
@@ -1235,6 +1247,11 @@ function renderMessages(preserveScroll = false) {
 }
 
 const addMessage = (message) => {
+    // 只使用跨设备稳定 ID 去重，不按文字去重，避免误删用户有意重复发送的话。
+    const incomingSyncId = message && message.syncId != null ? String(message.syncId) : '';
+    if (incomingSyncId && messages.some(existing => String(existing.syncId || '') === incomingSyncId)) {
+        return false;
+    }
     if (!(message.timestamp instanceof Date)) message.timestamp = new Date(message.timestamp);
     
     const container = DOMElements.chatContainer;
@@ -1287,6 +1304,7 @@ const addMessage = (message) => {
     }
 
     throttledSaveData();
+    return true;
 };
 
         window._addCallEvent = (icon, label, detail) => {

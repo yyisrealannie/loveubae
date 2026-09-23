@@ -1,4 +1,4 @@
-const CACHE_NAME = 'loveubae-v30';
+const CACHE_NAME = 'loveubae-v31';
 const LOCAL_ASSETS = [
   './', './index.html', './manifest.webmanifest', './css/styles.css',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
@@ -52,7 +52,13 @@ self.addEventListener('push', event => {
     renotify: true,
     data: { url: payload.url || './' }
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(title, options),
+    // 若聊天页正开着，立即通知它拉取这条云端消息，减少系统通知与聊天卡片的时间差。
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windows => {
+      windows.forEach(client => client.postMessage({ type: 'milk-push-arrived' }));
+    })
+  ]));
 });
 
 self.addEventListener('notificationclick', event => {
