@@ -2934,6 +2934,9 @@ playlist.style.top = (rect.top + (player.classList.contains('collapsed') ? 65 : 
 };
 
         function initCoreListeners() {
+            // DOMContentLoaded/恢复流程即使意外重复调用，也只能绑定一套发送监听器。
+            if (window.__milkCoreListenersBound) return;
+            window.__milkCoreListenersBound = true;
 
             DOMElements.chatContainer.addEventListener('scroll', () => {
                 const container = DOMElements.chatContainer;
