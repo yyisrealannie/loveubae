@@ -26,6 +26,8 @@
         let selectedMessages = [];
         let customReplies = [];
         let customPokes = [];
+        // “我的拍拍”与对方自动使用的 customPokes 完全分开。
+        let myPokes = [];
         let customStatuses = [];
         let customPokeGroups = [];
         let customStatusGroups = [];

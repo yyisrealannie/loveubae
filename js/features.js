@@ -470,6 +470,85 @@ function showEmojiTab() {
     });
 }
 
+function openMyPokeLibrary() {
+    const existing = document.getElementById('my-poke-library-modal');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'my-poke-library-modal';
+    overlay.className = 'my-poke-library-overlay';
+    const panel = document.createElement('section');
+    panel.className = 'my-poke-library-panel';
+    const header = document.createElement('div');
+    header.className = 'my-poke-library-header';
+    const title = document.createElement('div');
+    title.innerHTML = '<strong>我的拍拍</strong><small>只供你发送，不会加入他的自动拍拍库</small>';
+    const close = document.createElement('button');
+    close.type = 'button'; close.className = 'my-poke-library-close'; close.textContent = '×';
+    header.append(title, close);
+
+    const addRow = document.createElement('div');
+    addRow.className = 'my-poke-library-add';
+    const input = document.createElement('input');
+    input.type = 'text'; input.maxLength = 120;
+    input.placeholder = `例如：${settings.myName || '我'} 捏了捏 ${settings.partnerName || '他'} 的手`;
+    const add = document.createElement('button');
+    add.type = 'button'; add.textContent = '添加';
+    addRow.append(input, add);
+    const list = document.createElement('div');
+    list.className = 'my-poke-library-list';
+
+    const persist = () => {
+        if (typeof throttledSaveData === 'function') throttledSaveData();
+    };
+    const clean = value => typeof window._sanitizePokeTextForDisplay === 'function'
+        ? window._sanitizePokeTextForDisplay(value) : String(value || '').trim();
+    const render = () => {
+        list.replaceChildren();
+        if (!Array.isArray(myPokes) || !myPokes.length) {
+            const empty = document.createElement('p');
+            empty.className = 'my-poke-library-empty';
+            empty.textContent = '还没有保存的拍拍。发送自定义拍拍时勾选“保存到我的拍拍”即可。';
+            list.append(empty); return;
+        }
+        myPokes.forEach((text, index) => {
+            const item = document.createElement('div');
+            item.className = 'my-poke-library-item';
+            const label = document.createElement('span'); label.textContent = text;
+            const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = '编辑';
+            const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '删除';
+            edit.addEventListener('click', () => {
+                const next = clean(window.prompt('修改这条拍拍：', text));
+                if (!next || next === text) return;
+                if (myPokes.some((value, i) => i !== index && value === next)) {
+                    showNotification('这条拍拍已经在你的库里了', 'warning', 2200); return;
+                }
+                myPokes[index] = next; persist(); render();
+            });
+            remove.addEventListener('click', () => {
+                if (!window.confirm('从“我的拍拍”中删除这条内容？')) return;
+                myPokes.splice(index, 1); persist(); render();
+            });
+            item.append(label, edit, remove); list.append(item);
+        });
+    };
+    const addItem = () => {
+        const value = clean(input.value);
+        if (!value) return;
+        if (myPokes.includes(value)) {
+            showNotification('这条拍拍已经在你的库里了', 'warning', 2200); return;
+        }
+        myPokes.unshift(value); input.value = ''; persist(); render();
+    };
+    add.addEventListener('click', addItem);
+    input.addEventListener('keydown', event => { if (event.key === 'Enter') addItem(); });
+    close.addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove(); });
+    panel.append(header, addRow, list); overlay.append(panel); document.body.append(overlay);
+    render(); input.focus();
+}
+window.openMyPokeLibrary = openMyPokeLibrary;
+
 function showPokeTab() {
     const area = document.getElementById('combo-content-area');
     area.innerHTML = '';
@@ -477,7 +556,14 @@ function showPokeTab() {
     area.style.flexDirection = 'column';
     area.style.gap = '8px';
     
-    const quickPokes = customPokes.slice(0, 6);
+    const quickPokes = (Array.isArray(myPokes) ? myPokes : []).slice(0, 8);
+
+    if (!quickPokes.length) {
+        const hint = document.createElement('div');
+        hint.className = 'my-poke-library-hint';
+        hint.textContent = '“我的拍拍”还是空的，可以先自定义一条并保存。';
+        area.appendChild(hint);
+    }
     
     quickPokes.forEach(pokeText => {
         const cleanPokeText = (typeof window._sanitizePokeTextForDisplay === 'function')
@@ -511,7 +597,7 @@ function showPokeTab() {
         btn.onclick = () => {
             addMessage({
                 id: Date.now(), 
-                text: _formatPokeText(`${settings.myName} ${cleanPokeText}`), 
+                text: _formatPokeText(cleanPokeText),
                 timestamp: new Date(), 
                 type: 'system'
             });
@@ -544,6 +630,15 @@ function showPokeTab() {
         showModal(DOMElements.pokeModal.modal, DOMElements.pokeModal.input);
     };
     area.appendChild(customBtn);
+
+    const manageBtn = document.createElement('button');
+    manageBtn.className = 'my-poke-manage-btn';
+    manageBtn.innerHTML = '<i class="fas fa-folder-open"></i> 管理我的拍拍';
+    manageBtn.onclick = () => {
+        document.getElementById('user-sticker-picker').classList.remove('active');
+        openMyPokeLibrary();
+    };
+    area.appendChild(manageBtn);
 }
         function initCoreListeners() {
 
