@@ -310,7 +310,8 @@ const loadData = async () => {
             localforage.getItem(getStorageKey('myStickerLibrary')),
             localforage.getItem(getStorageKey('customReplyGroups')),
             localforage.getItem(getStorageKey('customPokeGroups')),
-            localforage.getItem(getStorageKey('customStatusGroups'))
+            localforage.getItem(getStorageKey('customStatusGroups')),
+            localforage.getItem(getStorageKey('myPokes'))
         ]);
         const getVal = (index) => results[index].status === 'fulfilled' ? results[index].value : null;
 
@@ -335,6 +336,7 @@ const loadData = async () => {
         const savedReplyGroups = getVal(18);
         const savedPokeGroups = getVal(19);
         const savedStatusGroups = getVal(20);
+        const savedMyPokes = getVal(21);
 
         if (savedPartnerPersonas) partnerPersonas = savedPartnerPersonas;
 
@@ -354,6 +356,7 @@ const loadData = async () => {
         
         if (savedPokes) customPokes = savedPokes;
         else customPokes = [...CONSTANTS.POKE_ACTIONS];
+        if (Array.isArray(savedMyPokes)) myPokes = savedMyPokes;
 
         if (savedStatuses) customStatuses = savedStatuses;
         else customStatuses = [...CONSTANTS.PARTNER_STATUSES];
@@ -564,6 +567,7 @@ const saveData = async () => {
         { key: 'customEmojis',           val: () => localforage.setItem(getStorageKey('customEmojis'), customEmojis) },
         { key: 'anniversaries',          val: () => localforage.setItem(getStorageKey('anniversaries'), anniversaries) },
         { key: 'customPokes',            val: () => localforage.setItem(getStorageKey('customPokes'), customPokes) },
+        { key: 'myPokes',                val: () => localforage.setItem(getStorageKey('myPokes'), myPokes) },
         { key: 'customStatuses',         val: () => localforage.setItem(getStorageKey('customStatuses'), customStatuses) },
         { key: 'customMottos',           val: () => localforage.setItem(getStorageKey('customMottos'), customMottos) },
         { key: 'customIntros',           val: () => localforage.setItem(getStorageKey('customIntros'), customIntros) },
@@ -2021,6 +2025,7 @@ function showModal(modalElement, focusElement = null) {
                     }
                     if (inclReplies)  {
                         exportObj.customReplies = customReplies;
+                        exportObj.myPokes = myPokes;
                         if (customEmojis && customEmojis.length > 0) exportObj.customEmojis = customEmojis;
                         exportObj.exportModules.push('customReplies');
                     }
@@ -2143,6 +2148,9 @@ function showModal(modalElement, focusElement = null) {
                         const emojis = parseVal(getVal('customEmojis'));
                         if (Array.isArray(emojis)) converted.customEmojis = emojis;
 
+                        const importedMyPokes = parseVal(getVal('myPokes'));
+                        if (Array.isArray(importedMyPokes)) converted.myPokes = importedMyPokes;
+
                         const ann = parseVal(getVal('anniversaries'));
                         if (Array.isArray(ann)) { converted.anniversaries = ann; converted.exportModules.push('anniversaries'); }
 
@@ -2154,7 +2162,7 @@ function showModal(modalElement, focusElement = null) {
 
                     const hasMessages  = importedData.messages && Array.isArray(importedData.messages);
                     const hasSettings  = !!importedData.settings;
-                    const hasReplies   = importedData.customReplies && Array.isArray(importedData.customReplies);
+                    const hasReplies   = (importedData.customReplies && Array.isArray(importedData.customReplies)) || (importedData.myPokes && Array.isArray(importedData.myPokes));
                     const hasAnn       = importedData.anniversaries && Array.isArray(importedData.anniversaries);
                     const hasThemes    = !!importedData.customThemes || !!importedData.stickerLibrary;
 
@@ -2235,6 +2243,7 @@ function showModal(modalElement, focusElement = null) {
                         }
                         if (doReplies  && importedData.customReplies)  customReplies  = importedData.customReplies;
                         if (doReplies  && importedData.customEmojis && Array.isArray(importedData.customEmojis)) customEmojis = importedData.customEmojis;
+                        if (doReplies  && importedData.myPokes && Array.isArray(importedData.myPokes)) myPokes = importedData.myPokes;
                         if (doAnn      && importedData.anniversaries)   anniversaries  = importedData.anniversaries;
                         if (doThemes   && importedData.customThemes)    customThemes   = importedData.customThemes;
                         if (doThemes   && importedData.stickerLibrary)  stickerLibrary = importedData.stickerLibrary;

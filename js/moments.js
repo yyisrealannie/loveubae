@@ -211,12 +211,12 @@
     urlCache.set(item.object_path, { url: data.signedUrl, until: Date.now() + 55 * 60000 });
     return data.signedUrl;
   }
-  async function appendImage(target, mediaId) {
+  async function appendImage(target, mediaId, extraClass = '') {
     if (!mediaId) return;
     try {
       const link = await imageFor(mediaId);
       if (!link) return;
-      const img = node('img', 'moments-media' + (media.find(x => x.id === mediaId)?.kind === 'sticker' ? ' moments-sticker' : ''));
+      const img = node('img', 'moments-media' + (media.find(x => x.id === mediaId)?.kind === 'sticker' ? ' moments-sticker' : '') + (extraClass ? ` ${extraClass}` : ''));
       img.src = link; img.alt = '私密图片'; img.loading = 'lazy'; target.append(img);
     } catch (_) { target.append(note('图片暂时无法载入，请稍后刷新')); }
   }
@@ -401,9 +401,10 @@
       const own = post.author === 'self';
       const name = own ? (document.getElementById('my-name')?.textContent || '我').trim() : config?.partner_name || '他';
       const person = node('div', 'moments-person'); person.append(node('span', 'moments-dot', own ? '我' : '♥'), node('span', '', name));
-      card.append(person, node('time', 'moments-meta', new Date(post.created_at).toLocaleString()), node('div', 'moments-body', post.body));
-      appendImage(card, post.media_id);
-      card.append(row(button(post.liked ? '♥ 已喜欢' : '♡ 喜欢', async () => {
+      const postMedia = node('div', 'moments-post-media-wrap');
+      card.append(person, node('time', 'moments-meta', new Date(post.created_at).toLocaleString()), node('div', 'moments-body', post.body), postMedia);
+      appendImage(postMedia, post.media_id, 'moments-post-media');
+      const actions = row(button(post.liked ? '♥ 已喜欢' : '♡ 喜欢', async () => {
         try { await checked(db.from('milk_moments_posts').update({ liked: !post.liked }).eq('id', post.id)); post.liked = !post.liked; renderShell(); } catch (e) { alertError(e); }
       }), button('删除动态', async () => {
         if (!window.confirm('删除这条动态？它下面的评论会一起删除，图片仍会保留在私密图库。')) return;
@@ -411,17 +412,22 @@
           await checked(db.from('milk_moments_posts').delete().eq('id', post.id).eq('user_id', user.id));
           await refresh(); renderShell();
         } catch (e) { alertError(e); }
-      })));
+      }));
+      actions.classList.add('moments-actions');
+      card.append(actions);
       const thread = commentsByPost.get(post.id) || [];
+      const commentSection = node('section', 'moments-comments');
       for (const comment of thread) {
         const entry = node('div', 'moments-comment');
         entry.append(node('strong', '', comment.author === 'self' ? '我：' : `${config?.partner_name || '他'}：`), node('span', '', comment.body));
-        appendImage(entry, comment.media_id);
+        const commentMedia = node('div', 'moments-comment-media-wrap');
+        entry.append(commentMedia);
+        appendImage(commentMedia, comment.media_id, 'moments-comment-media');
         if (comment.author === 'self') entry.append(button('删除', async () => {
           if (!window.confirm('确定删除这条评论？')) return;
           try { await checked(db.from('milk_moments_comments').delete().eq('id', comment.id)); await refresh(); renderShell(); } catch (e) { alertError(e); }
         }));
-        card.append(entry);
+        commentSection.append(entry);
       }
       const commentText = field('input', '写评论或回复…'); commentText.maxLength = 1000;
       const sticker = stickerPicker();
@@ -434,8 +440,9 @@
         } catch (e) { alertError(e); }
       };
       commentText.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); send(); } });
-      card.append(row(commentText, sticker, button('发送', send, true)));
-      if (thread.filter(x => x.author === 'partner').length >= 10) card.append(note('这条动态已达到最多 10 次自动回复，你还可以继续留言。'));
+      commentSection.append(row(commentText, sticker, button('发送', send, true)));
+      if (thread.filter(x => x.author === 'partner').length >= 10) commentSection.append(note('这条动态已达到最多 10 次自动回复，你还可以继续留言。'));
+      card.append(commentSection);
       root.append(card);
     }
     if (posts.length > feedVisibleCount) {

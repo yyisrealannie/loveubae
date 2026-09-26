@@ -153,6 +153,7 @@ function profilePayload(){
  const source={customReplies,customReplyGroups:window.customReplyGroups||[],
   customEmojis:typeof customEmojis==='undefined'?[]:customEmojis,
   customPokes:typeof customPokes==='undefined'?[]:customPokes,
+  myPokes:typeof myPokes==='undefined'?[]:myPokes,
   customStatuses:typeof customStatuses==='undefined'?[]:customStatuses,
   settings:typeof settings==='undefined'?{}:{partnerName:settings.partnerName,myName:settings.myName,replyEnabled:settings.replyEnabled}};
  const json=JSON.stringify(source,(k,v)=>typeof v==='string'&&v.length>12000?undefined:v);
@@ -177,6 +178,7 @@ async function restoreProfileIfEmpty(){
  if(Array.isArray(p.customReplyGroups))window.customReplyGroups=p.customReplyGroups;
  if(Array.isArray(p.customEmojis))customEmojis=p.customEmojis;
  if(Array.isArray(p.customPokes))customPokes=p.customPokes;
+ if(Array.isArray(p.myPokes))myPokes=p.myPokes;
  if(Array.isArray(p.customStatuses))customStatuses=p.customStatuses;
  if(p.settings&&typeof p.settings==='object')Object.assign(settings,p.settings);
  try{await saveData();if(typeof updateUI==='function')updateUI()}catch(e){report(e)}
