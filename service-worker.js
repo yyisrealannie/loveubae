@@ -1,4 +1,4 @@
-const CACHE_NAME = 'loveubae-v32';
+const CACHE_NAME = 'loveubae-v33';
 const LOCAL_ASSETS = [
   './', './index.html', './manifest.webmanifest', './css/styles.css',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
@@ -67,7 +67,9 @@ self.addEventListener('notificationclick', event => {
   event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windows => {
     for (const client of windows) {
       if (client.url.startsWith(new URL('./', self.location.href).href) && 'focus' in client) {
-        if ('navigate' in client) client.navigate(targetUrl);
+        // 已打开的主屏幕网页只需要回到前台。navigate() 会强制整页重载，
+        // 中断网页内通话，并让同步流程重新启动而放大消息重复竞态。
+        client.postMessage({ type: 'milk-push-arrived', source: 'notificationclick' });
         return client.focus();
       }
     }

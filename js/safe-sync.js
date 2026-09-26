@@ -7,8 +7,31 @@ let known=new Set(), queue=new Map();
 const device=(()=>{let d=localStorage.getItem('milkSafeDevice');if(!d){d=crypto.randomUUID();localStorage.setItem('milkSafeDevice',d)}return d})();
 const auto=()=>localStorage.getItem('milkCloudAutoSync')!=='false';
 const keyOf=m=>String(m.syncId||(device+':'+m.id));
+const liveByKey=key=>hasMessages()?messages.find(m=>keyOf(m)===String(key)):null;
 const check=r=>{if(r.error)throw r.error;return r.data};
 const hasMessages=()=>typeof messages!=='undefined'&&Array.isArray(messages);
+function removeStableDuplicates(){
+ if(!hasMessages())return 0;
+ const seen=new Map();let removed=0;
+ for(let i=0;i<messages.length;i++){
+  const current=messages[i],id=current?.syncId;
+  if(id==null||id==='')continue;
+  const key=String(id);
+  if(seen.has(key)){
+   const kept=seen.get(key);
+   // 保留两份中更完整的本地信息，再移除重复对象。
+   if(!kept.image&&current.image)kept.image=current.image;
+   if(!kept.mediaPath&&current.mediaPath)kept.mediaPath=current.mediaPath;
+   if(!kept.note&&current.note)kept.note=current.note;
+   if(!kept.replyTo&&current.replyTo)kept.replyTo=current.replyTo;
+   if(current.favorited)kept.favorited=true;
+   if(current.status==='read')kept.status='read';
+   messages.splice(i,1);i--;removed++
+  }
+  else seen.set(key,current)
+ }
+ return removed
+}
 function markOk(){lastOk=Date.now();localStorage.setItem('milkSafeLastOk',String(lastOk));status()}
 function statusText(){return (queue.size?'正在同步 '+queue.size+' 条':lastOk?'已同步':'已连接')
  +(lastError?' · ⚠️ '+lastError.slice(0,70):'')}
@@ -77,14 +100,19 @@ async function mergeRemote(){
  merging=(async()=>{
   if(!await connect())throw new Error('请先登录 Supabase');
   if(!hasMessages())return {added:0};
-  let added=0,page=0,ids=new Map(messages.map(m=>[keyOf(m),m]));
+  // 上一次并发回填若留下了相同稳定 ID 的副本，在读取云端前先安全收拢。
+  // 不按文字判断，用户有意重复发送的内容不会被删除。
+  let removed=removeStableDuplicates(),added=0,page=0,ids=new Map(messages.map(m=>[keyOf(m),m]));
   while(page<100){
    const rows=check(await client.from(TABLE).select('message_key,message,media_path,created_at')
     .order('created_at',{ascending:true}).order('message_key',{ascending:true}).range(page*100,page*100+99));
    for(const row of rows||[]){
     known.add(row.message_key);
-    if(ids.has(row.message_key)){
-     const local=ids.get(row.message_key);
+    // ids 是本轮开始时的快照；发送可能在查询等待期间发生，所以必须检查实时数组。
+    const existing=ids.get(row.message_key)||liveByKey(row.message_key);
+    if(existing){
+     ids.set(row.message_key,existing);
+     const local=existing;
      if(row.media_path && (!local.image || /^https:/.test(local.image)) && (!local._signedAt || Date.now()-local._signedAt>20*3600000)){
       try{local.image=check(await client.storage.from(MEDIA).createSignedUrl(row.media_path,86400)).signedUrl;local._signedAt=Date.now()}
       catch(e){report(e)}
@@ -100,16 +128,23 @@ async function mergeRemote(){
      catch(e){report(e)}
     }
     m.timestamp=new Date(m.timestamp||row.created_at);
+    // 签名 URL 的 await 期间也可能刚好产生本地消息，写入前再做最后一次实时检查。
+    const concurrent=liveByKey(row.message_key);
+    if(concurrent){
+     ids.set(row.message_key,concurrent);
+     if(row.media_path&&m.image&&!concurrent.image){concurrent.image=m.image;concurrent.mediaPath=row.media_path;concurrent._signedAt=m._signedAt}
+     continue
+    }
     messages.push(m);ids.set(row.message_key,m);added++
    }
    if(!rows||rows.length<100)break;page++
   }
-  if(added){
+  if(added||removed){
    messages.sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
    if(typeof renderMessages==='function')renderMessages(true);
    try{await saveData()}catch(e){report(e)}
   }
-  await saveKnown();status();return {added}
+  await saveKnown();status();return {added,removed}
  })().finally(()=>{merging=null});
  return merging
 }
