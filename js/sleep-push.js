@@ -100,7 +100,10 @@
         if (el.hoursValue) el.hoursValue.textContent = hours + '小时';
         if (el.interval) el.interval.value = String(intervalMinutes());
         if (el.intervalValue) el.intervalValue.textContent = intervalMinutes() + '分钟';
-        if (el.frequency) el.frequency.textContent = '后台生成后立即推送 · 当前每 ' + intervalMinutes() + ' 分钟一条';
+        const privacyMode = localStorage.getItem('notifPrivacyMode') || 'full';
+        if (el.frequency) el.frequency.textContent = privacyMode === 'off'
+            ? '后台生成后保存到聊天，不弹系统通知 · 当前每 ' + intervalMinutes() + ' 分钟一条'
+            : '后台生成后立即推送 · 当前每 ' + intervalMinutes() + ' 分钟一条';
         const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
         const expiry = localExpiry();
         if (isIOS() && !isStandalone()) {
@@ -125,7 +128,9 @@
             if (el.test) el.test.disabled = true;
             if (el.disable) el.disable.disabled = expiry <= Date.now();
         } else if (expiry > Date.now()) {
-            el.text.textContent = '已开启，持续到 ' + formatTime(expiry);
+            el.text.textContent = privacyMode === 'off'
+                ? '后台消息已开启，持续到 ' + formatTime(expiry) + '（不弹通知）'
+                : '已开启，持续到 ' + formatTime(expiry);
             el.button.textContent = '续' + hours + '小时';
             el.button.disabled = false;
             if (el.test) el.test.disabled = false;

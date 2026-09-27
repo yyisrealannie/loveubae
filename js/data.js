@@ -70,7 +70,7 @@
         +       '<select class="dm-inline-select" id="notif-privacy-mode" aria-label="通知显示内容">'
         +         '<option value="full">姓名＋内容</option>'
         +         '<option value="generic">仅提示新消息</option>'
-        +         '<option value="off">完全不显示</option>'
+        +         '<option value="off">不显示（仍收消息）</option>'
         +       '</select>'
         +     '</div>'
         +     '<div class="dm-row-item">'
@@ -315,7 +315,10 @@
             localStorage.setItem('notifPrivacyMode', privacyMode.value);
             if (typeof window._refreshNotifPrivacyDescription === 'function') window._refreshNotifPrivacyDescription();
             if (window.SleepPush && typeof window.SleepPush.syncProfile === 'function') window.SleepPush.syncProfile({ quiet: true });
-            if (typeof showNotification === 'function') showNotification('通知显示方式已更新', 'success', 1800);
+            if (typeof showNotification === 'function') showNotification(
+                privacyMode.value === 'off' ? '系统通知已隐藏；后台仍会继续生成消息' : '通知显示方式已更新',
+                'success', 2600
+            );
         });
 
         var sleepPushButton = mc.querySelector('#sleep-push-enable');
@@ -598,7 +601,7 @@ window._refreshNotifPrivacyDescription = function() {
     var desc = document.getElementById('notif-privacy-desc');
     if (!desc) return;
     if (mode === 'generic') desc.textContent = '仅显示“您收到了一条新消息”';
-    else if (mode === 'off') desc.textContent = '不显示系统消息通知';
+    else if (mode === 'off') desc.textContent = '不弹系统通知；后台消息仍会保存到聊天';
     else desc.textContent = '显示对方姓名和消息内容';
 };
 
