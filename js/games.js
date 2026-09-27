@@ -1366,6 +1366,17 @@ function initComboMenu() {
         const wrapper = document.createElement('div');
         wrapper.className = 'poke-list-view';
 
+        const manageBtn = document.createElement('button');
+        manageBtn.className = 'custom-poke-btn';
+        manageBtn.innerHTML = '<i class="fas fa-folder-open"></i> 管理我的拍拍库';
+        manageBtn.onclick = (e) => {
+            e.stopPropagation();
+            picker.classList.remove('active');
+            if (typeof window.openMyPokeLibrary === 'function') window.openMyPokeLibrary();
+            else showNotification('我的拍拍库正在加载，请稍后再试', 'warning', 2200);
+        };
+        wrapper.appendChild(manageBtn);
+
         const customBtn = document.createElement('button');
         customBtn.className = 'custom-poke-btn';
         customBtn.innerHTML = '<i class="fas fa-pen"></i> 自定义动作';
@@ -1375,6 +1386,35 @@ function initComboMenu() {
             showModal(DOMElements.pokeModal.modal, DOMElements.pokeModal.input);
         };
         wrapper.appendChild(customBtn);
+
+        const mineTitle = document.createElement('div');
+        mineTitle.style.fontSize = '12px';
+        mineTitle.style.color = 'var(--text-secondary)';
+        mineTitle.style.margin = '8px 0 5px';
+        mineTitle.innerText = '我的拍拍';
+        wrapper.appendChild(mineTitle);
+
+        const savedMyPokes = Array.isArray(myPokes) ? myPokes.slice(0, 8) : [];
+        if (!savedMyPokes.length) {
+            const empty = document.createElement('div');
+            empty.className = 'my-poke-library-hint';
+            empty.textContent = '还没有保存内容。点“自定义动作”，发送时勾选“保存到我的拍拍”。';
+            wrapper.appendChild(empty);
+        }
+        savedMyPokes.forEach(text => {
+            const item = document.createElement('div');
+            item.className = 'poke-quick-item';
+            item.innerText = text;
+            item.onclick = (e) => {
+                e.stopPropagation();
+                const cleanText = typeof window._sanitizePokeTextForDisplay === 'function'
+                    ? window._sanitizePokeTextForDisplay(text) : String(text || '').trim();
+                addMessage({ id: Date.now(), text: _formatPokeText(cleanText), timestamp: new Date(), type: 'system' });
+                picker.classList.remove('active');
+                setTimeout(simulateReply, 1500);
+            };
+            wrapper.appendChild(item);
+        });
 
         const userPresets = [
             "拍了拍对方的头",
@@ -1389,7 +1429,7 @@ function initComboMenu() {
         title.style.fontSize = '12px';
         title.style.color = 'var(--text-secondary)';
         title.style.marginBottom = '5px';
-        title.innerText = '快捷动作';
+        title.innerText = '预设快捷动作';
         wrapper.appendChild(title);
 
         userPresets.forEach(text => {
