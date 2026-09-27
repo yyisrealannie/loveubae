@@ -108,28 +108,49 @@ Deno.serve(async (request) => {
     if (error) throw error
 
     let sent = 0
+    let generated = 0
     let removed = 0
     for (const row of due || []) {
       const intervalMinutes = Math.max(1, Math.min(120, Number(row.push_interval_minutes) || 5))
       const nextPushAt = new Date(Date.now() + intervalMinutes * 60_000).toISOString()
       const pool = Array.isArray(row.reply_pool) ? row.reply_pool.filter(Boolean) : []
-      if (row.privacy_mode === 'off' || pool.length === 0) {
+      if (pool.length === 0) {
         await admin.from('milk_push_subscriptions').update({ next_push_at: nextPushAt })
           .eq('user_id', row.user_id).eq('endpoint', row.endpoint)
         continue
       }
 
       const body = String(pool[Math.floor(Math.random() * pool.length)]).slice(0, 280)
+      // “完全不显示”只控制系统通知的可见性，不能关闭后台消息生成。
+      // 先把消息写入待收表；用户下次打开页面时会正常导入聊天记录。
+      if (row.privacy_mode === 'off') {
+        try {
+          const { error: messageError } = await admin.from('milk_push_messages').insert({ user_id: row.user_id, body })
+          if (messageError) throw messageError
+          const { error: scheduleError } = await admin.from('milk_push_subscriptions').update({ next_push_at: nextPushAt })
+            .eq('user_id', row.user_id).eq('endpoint', row.endpoint)
+          if (scheduleError) throw scheduleError
+          generated += 1
+        } catch (messageError) {
+          // 一条订阅失败不能阻断同一轮里其他用户的后台消息。
+          console.error('Silent background message failed', row.user_id, messageError)
+        }
+        continue
+      }
+
       const notification = row.privacy_mode === 'generic'
         ? { title: 'loveubae', body: '您收到了一条新消息', url: './', tag: 'loveubae-sleep-message' }
         : { title: row.partner_name || '对方', body, url: './', tag: 'loveubae-sleep-message' }
 
       try {
         await webpush.sendNotification(row.subscription, JSON.stringify(notification), { TTL: 3600 })
-        await admin.from('milk_push_messages').insert({ user_id: row.user_id, body })
-        await admin.from('milk_push_subscriptions').update({ next_push_at: nextPushAt })
+        const { error: messageError } = await admin.from('milk_push_messages').insert({ user_id: row.user_id, body })
+        if (messageError) throw messageError
+        const { error: scheduleError } = await admin.from('milk_push_subscriptions').update({ next_push_at: nextPushAt })
           .eq('user_id', row.user_id).eq('endpoint', row.endpoint)
+        if (scheduleError) throw scheduleError
         sent += 1
+        generated += 1
       } catch (pushError) {
         const statusCode = Number((pushError as { statusCode?: number }).statusCode || 0)
         if (statusCode === 404 || statusCode === 410) {
@@ -142,7 +163,7 @@ Deno.serve(async (request) => {
       }
     }
 
-    return new Response(JSON.stringify({ checked: due?.length || 0, sent, removed }), { headers: corsHeaders })
+    return new Response(JSON.stringify({ checked: due?.length || 0, generated, sent, removed }), { headers: corsHeaders })
   } catch (error) {
     console.error(error)
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
