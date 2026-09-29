@@ -675,6 +675,7 @@ function _renderGroupBlock(list, group, groupItems, disabledSet, isUngrouped = f
             e.stopPropagation();
             group.disabled = !group.disabled;
             throttledSaveData();
+            _notifyReplyPoolChanged();
             renderReplyLibrary();
             showNotification(group.disabled ? `已屏蔽「${group.name}」` : `已启用「${group.name}」`, 'success');
         });
@@ -912,6 +913,12 @@ function _saveDisabledStickerItemsSet(set) {
 
 function _saveDisabledItemsSet(set) {
     localStorage.setItem('disabledReplyItems', JSON.stringify([...set]));
+    _notifyReplyPoolChanged();
+}
+
+function _notifyReplyPoolChanged() {
+    window.SleepPush?.scheduleProfileSync?.();
+    window.MilkMoments?.scheduleLibrarySync?.();
 }
 
 function _toggleItemDisable(itemText) {
@@ -1025,7 +1032,7 @@ function _showGroupManager() {
                 const action = btn.dataset.action;
                 if (action === 'toggle') {
                     groups[i].disabled = !groups[i].disabled;
-                    throttledSaveData(); render(); renderReplyLibrary();
+                    throttledSaveData(); _notifyReplyPoolChanged(); render(); renderReplyLibrary();
                 } else if (action === 'edit') {
                     overlay.remove();
                     _showGroupEditor(groups[i], ctx);

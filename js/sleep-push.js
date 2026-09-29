@@ -145,18 +145,19 @@
     }
 
     function replyPool() {
-        let pool = [];
-        try {
-            if (typeof customReplies !== 'undefined' && Array.isArray(customReplies)) pool = customReplies.slice();
-            else if (Array.isArray(window._customReplies)) pool = window._customReplies.slice();
-        } catch (e) {}
-        let disabled = new Set();
-        try { disabled = new Set(JSON.parse(localStorage.getItem('disabledReplyItems') || '[]')); } catch (e) {}
-        return Array.from(new Set(pool
-            .map(item => String(item || '').trim())
-            .filter(item => item && !disabled.has(item))))
+        return Array.from(new Set(window.getEnabledReplyPool()))
             .slice(0, 300)
             .map(item => item.slice(0, 280));
+    }
+
+    let profileSyncChain = Promise.resolve();
+    function scheduleProfileSync() {
+        if (localExpiry() <= Date.now()) return;
+        // 顺序上传，避免快速连续屏蔽时较旧的请求最后写回服务器。
+        profileSyncChain = profileSyncChain.then(() => syncProfile()).catch(error => {
+            console.warn('[sleep-push] 字卡池同步失败', error);
+        });
+        return profileSyncChain;
     }
 
     async function cloudIdentity() {
@@ -328,7 +329,16 @@
                 if (!result.data || !result.data.length) return 0;
 
                 let added = 0;
+                const blocked = new Set();
+                try {
+                    JSON.parse(localStorage.getItem('disabledReplyItems') || '[]')
+                        .forEach(text => blocked.add(String(text).trim().slice(0, 280)));
+                } catch (e) {}
+                if (window._milkAppReady) (window.customReplyGroups || []).forEach(group => {
+                    if (group.disabled) (group.items || []).forEach(text => blocked.add(String(text).trim().slice(0, 280)));
+                });
                 result.data.forEach(item => {
+                    if (blocked.has(String(item.body || '').trim())) return;
                     const accepted = addMessage({
                         id: Date.parse(item.sent_at) || Date.now(),
                         // 推送表的 UUID 跨刷新、跨设备保持不变，安全同步也会沿用它。
@@ -367,15 +377,17 @@
         }, Math.max(0, Number(delay) || 0));
     }
 
-    window.SleepPush = { enable, disable, test, setDuration, setPushInterval, refreshStatus, syncProfile, importPendingMessages };
+    window.SleepPush = { enable, disable, test, setDuration, setPushInterval, refreshStatus, syncProfile, scheduleProfileSync, importPendingMessages };
     document.addEventListener('DOMContentLoaded', function () {
         refreshStatus();
         // 原来等待 3.5 秒，造成系统通知已到而聊天页仍迟迟不显示。
         schedulePendingImport(250);
     });
+    window.addEventListener('milk-app-ready', scheduleProfileSync);
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') {
             refreshStatus();
+            scheduleProfileSync();
             schedulePendingImport(0);
         }
     });

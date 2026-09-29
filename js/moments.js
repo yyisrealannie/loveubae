@@ -176,9 +176,19 @@
     finally { librarySyncPromise = null; }
   }
   function scheduleLibrarySync() {
-    if (!libraryReady || !db || !user) return;
     clearTimeout(librarySyncTimer);
-    librarySyncTimer = setTimeout(() => syncCards().catch(error => console.warn('[moments] 字卡库自动更新失败:', error)), 1200);
+    librarySyncTimer = setTimeout(async () => {
+      try {
+        if (!window._milkAppReady || !Array.isArray(customReplies) || !customReplies.length) return;
+        if (!libraryReady) {
+          db = window.MilkCloudSync?.getClient();
+          user = await window.MilkCloudSync?.currentUser();
+          if (!db || !user) return;
+          config = await checked(db.from('milk_moments_config').select('*').eq('user_id', user.id).maybeSingle());
+        }
+        await syncCards();
+      } catch (error) { console.warn('[moments] 字卡库自动更新失败:', error); }
+    }, 1200);
   }
   async function loadRows(table, configure) {
     const rows = [];
@@ -586,7 +596,7 @@
       }
       await refresh();
       // 新设备没有本地字卡时保留云端池，不会因为打开页面而清空它。
-      if (myCards().length || !config) await syncCards();
+      if (myCards().length || !config || (typeof customReplies !== 'undefined' && customReplies.length)) await syncCards();
       libraryReady = true;
       renderShell();
     } catch (e) { body().replaceChildren(note('打开失败：' + errorText(e))); }
