@@ -150,13 +150,8 @@
   const body = () => $('#moments-content');
   function checked(promise) { return promise.then(result => { if (result.error) throw result.error; return result.data; }); }
   function myCards() {
-    const disabled = (() => { try { return new Set(JSON.parse(localStorage.getItem('disabledReplyItems') || '[]')); } catch (_) { return new Set(); } })();
-    const disabledGroups = new Set();
-    (window.customReplyGroups || []).forEach(group => {
-      if (group.disabled) (group.items || []).forEach(item => disabledGroups.add(item));
-    });
-    const source = typeof customReplies !== 'undefined' ? customReplies : window._customReplies;
-    return Array.isArray(source) ? [...new Set(source.filter(x => typeof x === 'string' && !disabled.has(x) && !disabledGroups.has(x)).map(x => x.trim().slice(0, 1000)).filter(Boolean))].slice(0, 500) : [];
+    const source = window.getEnabledReplyPool?.() || [];
+    return [...new Set(source.map(x => x.slice(0, 1000)).filter(Boolean))].slice(0, 500);
   }
   async function syncCards() {
     if (!db || !user) return 0;
