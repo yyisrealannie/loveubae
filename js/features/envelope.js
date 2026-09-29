@@ -31,8 +31,9 @@ async function checkEnvelopeStatus() {
     let newReplyLetter = null;
     envelopeData.outbox.forEach(letter => {
         if (letter.status === 'pending' && now >= letter.replyTime) {
-            letter.status = 'replied';
             const replyContent = generateEnvelopeReplyText();
+            if (!replyContent) return;
+            letter.status = 'replied';
             const replyId = 'reply_' + Date.now() + '_' + Math.random().toString(36).substr(2,4);
             const inboxLetter = {
                 id: replyId,
@@ -128,7 +129,8 @@ window.openEnvelopeAndViewReply = function(replyId) {
 };
 
 function generateEnvelopeReplyText() {
-    const sourcePool = [...customReplies];
+    const sourcePool = window.getEnabledReplyPool();
+    if (!sourcePool.length) return '';
     const sentenceCount = Math.floor(Math.random() * (12 - 8 + 1)) + 8;
     let replyContent = "";
     for (let i = 0; i < sentenceCount; i++) {
@@ -161,9 +163,10 @@ window.maybeTriggerProactiveEnvelope = function(sourcePool) {
     } catch (e) {}
     if (weekState.count >= 2 || now - weekState.lastAt < cooldownMs || Math.random() >= 0.08) return false;
 
-    const pool = Array.from(new Set((sourcePool || customReplies || [])
+    const enabledNow = new Set(window.getEnabledReplyPool());
+    const pool = Array.from(new Set((sourcePool || window.getEnabledReplyPool())
         .map(item => String(item || '').trim())
-        .filter(Boolean)));
+        .filter(item => item && enabledNow.has(item))));
     if (!pool.length) return false;
 
     const shuffled = pool.slice();

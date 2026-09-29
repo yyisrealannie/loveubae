@@ -308,8 +308,7 @@ function checkPartnerDailyMood() {
         const randomMood = getAllMoodOptions()[Math.floor(Math.random() * getAllMoodOptions().length)];
         moodData[dateStr].partner = randomMood.key;
         try {
-            const cReplies = (typeof customReplies !== 'undefined') ? customReplies : (window._customReplies || []);
-            const sourcePool = [...cReplies];
+            const sourcePool = window.getEnabledReplyPool();
             if (sourcePool.length > 0) {
                 const count = Math.floor(Math.random() * 3) + 1;
                 const chosen = [];

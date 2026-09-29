@@ -1,5 +1,23 @@
 /*核心应用逻辑：数据加载保存、消息渲染、会话管理等*/
 
+window.getEnabledReplyPool = function() {
+    let disabledItems = new Set();
+    try {
+        const saved = JSON.parse(localStorage.getItem('disabledReplyItems') || '[]');
+        if (Array.isArray(saved)) disabledItems = new Set(saved);
+    } catch (e) {}
+    const disabledGroupItems = new Set();
+    (window.customReplyGroups || []).forEach(group => {
+        if (group.disabled && Array.isArray(group.items)) {
+            group.items.forEach(item => disabledGroupItems.add(item));
+        }
+    });
+    return (typeof customReplies !== 'undefined' && Array.isArray(customReplies) ? customReplies : [])
+        .filter(item => !disabledItems.has(item) && !disabledGroupItems.has(item))
+        .map(item => String(item || '').trim())
+        .filter(Boolean);
+};
+
         function clearAllAppData() {
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;animation:fadeIn 0.2s ease;';
@@ -1710,20 +1728,7 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                 showNotification('回复库为空，请先到「自定义回复」中添加内容', 'info', 3500);
                 return;
             }
-            const disabledItemsOnce = (() => {
-                try {
-                    const raw = localStorage.getItem('disabledReplyItems');
-                    return raw ? new Set(JSON.parse(raw)) : new Set();
-                } catch (e) { return new Set(); }
-            })();
-            const disabledGroupItemsOnce = new Set();
-            (window.customReplyGroups || []).forEach(g => {
-                if (g.disabled && Array.isArray(g.items)) g.items.forEach(item => disabledGroupItemsOnce.add(item));
-            });
-            const replyPoolOnce = customReplies
-                .filter(r => !disabledItemsOnce.has(r) && !disabledGroupItemsOnce.has(r))
-                .map(r => String(r || '').trim())
-                .filter(Boolean);
+            const replyPoolOnce = window.getEnabledReplyPool();
             if (!replyPoolOnce.length) {
                 showNotification('回复库可用内容为空（可能被分组禁用或屏蔽），请到「自定义回复」中调整', 'info', 4000);
                 return;
@@ -1745,7 +1750,7 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                 delay += settings.replyDelayMin + Math.random() * delayRange;
                 setTimeout(() => {
                     try {
-                    const replyPool = replyPoolOnce;
+                    const replyPool = window.getEnabledReplyPool();
                     // 被屏蔽或无效项直接换下一个，尽量保证每次都产出可用回复
                     let replyText = '';
                     const pickedParts = [];
@@ -1760,8 +1765,8 @@ if (partnerPersonas && partnerPersonas.length > 0 && Math.random() < 0.3) {
                         }
                     }
                     replyText = pickedParts.join('\n');
-                    if (!replyText && i === replyCount - 1) {
-                        (function(){try{if(window._typingIndicatorAutoHideTimer){clearTimeout(window._typingIndicatorAutoHideTimer);window._typingIndicatorAutoHideTimer=null;}}catch(e){}var _tiW=document.getElementById('typing-indicator-wrapper');if(_tiW){var _tiInner=_tiW.querySelector('.typing-indicator');if(_tiInner){_tiInner.classList.add('hiding');setTimeout(function(){_tiW.style.display='none';if(_tiInner)_tiInner.classList.remove('hiding');},240);}else{_tiW.style.display='none';}}})();
+                    if (!replyText) {
+                        if (i === replyCount - 1) (function(){try{if(window._typingIndicatorAutoHideTimer){clearTimeout(window._typingIndicatorAutoHideTimer);window._typingIndicatorAutoHideTimer=null;}}catch(e){}var _tiW=document.getElementById('typing-indicator-wrapper');if(_tiW){var _tiInner=_tiW.querySelector('.typing-indicator');if(_tiInner){_tiInner.classList.add('hiding');setTimeout(function(){_tiW.style.display='none';if(_tiInner)_tiInner.classList.remove('hiding');},240);}else{_tiW.style.display='none';}}})();
                         return;
                     }
 

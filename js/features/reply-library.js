@@ -1388,6 +1388,13 @@ function editItem(index, oldText) {
     else if (currentSubTab === 'statuses') customStatuses[index] = newText.trim();
     else if (currentSubTab === 'mottos') customMottos[index] = newText.trim();
     else if (currentSubTab === 'intros') customIntros[index] = newText.trim();
+    if (currentMajorTab === 'reply' && currentSubTab === 'custom') {
+        const disabled = _getDisabledItemsSet();
+        if (disabled.delete(oldText)) {
+            disabled.add(newText.trim());
+            _saveDisabledItemsSet(disabled);
+        }
+    }
     throttledSaveData();
     renderReplyLibrary();
 }
