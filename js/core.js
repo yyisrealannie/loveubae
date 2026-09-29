@@ -1,20 +1,46 @@
 /*核心应用逻辑：数据加载保存、消息渲染、会话管理等*/
 
-window.getEnabledReplyPool = function() {
-    let disabledItems = new Set();
+window.normalizeReplyCardText = function(value) {
+    return String(value == null ? '' : value)
+        .normalize('NFKC')
+        .replace(/\r\n?/g, '\n')
+        .replace(/[\t\f\v ]+/g, ' ')
+        .replace(/ *\n */g, '\n')
+        .trim();
+};
+
+window.getDisabledReplyKeys = function() {
+    const normalize = window.normalizeReplyCardText;
+    const disabledItems = new Set();
     try {
         const saved = JSON.parse(localStorage.getItem('disabledReplyItems') || '[]');
-        if (Array.isArray(saved)) disabledItems = new Set(saved);
+        if (Array.isArray(saved)) saved.forEach(item => {
+            const key = normalize(item);
+            if (key) disabledItems.add(key);
+        });
     } catch (e) {}
-    const disabledGroupItems = new Set();
     (window.customReplyGroups || []).forEach(group => {
         if (group.disabled && Array.isArray(group.items)) {
-            group.items.forEach(item => disabledGroupItems.add(item));
+            group.items.forEach(item => {
+                const key = normalize(item);
+                if (key) disabledItems.add(key);
+            });
         }
     });
+    return disabledItems;
+};
+
+window.isReplyCardDisabled = function(value) {
+    const key = window.normalizeReplyCardText(value);
+    return !!key && window.getDisabledReplyKeys().has(key);
+};
+
+window.getEnabledReplyPool = function() {
+    const normalize = window.normalizeReplyCardText;
+    const disabledItems = window.getDisabledReplyKeys();
     return (typeof customReplies !== 'undefined' && Array.isArray(customReplies) ? customReplies : [])
-        .filter(item => !disabledItems.has(item) && !disabledGroupItems.has(item))
-        .map(item => String(item || '').trim())
+        .map(item => normalize(item))
+        .filter(item => !disabledItems.has(item))
         .filter(Boolean);
 };
 

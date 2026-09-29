@@ -720,7 +720,8 @@ function _renderCardList(container, itemsWithIdx, disabledSet) {
 function _createCard(item, index, disabledSet) {
     const div = document.createElement('div');
     div.className = 'rl-card';
-    const isDisabled = disabledSet && disabledSet.has(item);
+    const disabledKey = window.normalizeReplyCardText ? window.normalizeReplyCardText(item) : String(item || '').trim();
+    const isDisabled = disabledSet && disabledSet.has(disabledKey);
     const isSelected = _batchSelectedIndices.has(index);
 
     const groupBadge = (() => {
@@ -896,7 +897,8 @@ function _renderStickerTab(list, itemsToRender) {
 function _getDisabledItemsSet() {
     try {
         const raw = localStorage.getItem('disabledReplyItems');
-        return raw ? new Set(JSON.parse(raw)) : new Set();
+        const normalize = window.normalizeReplyCardText || (value => String(value || '').trim());
+        return raw ? new Set(JSON.parse(raw).map(normalize).filter(Boolean)) : new Set();
     } catch { return new Set(); }
 }
 
@@ -912,26 +914,35 @@ function _saveDisabledStickerItemsSet(set) {
 }
 
 function _saveDisabledItemsSet(set) {
-    localStorage.setItem('disabledReplyItems', JSON.stringify([...set]));
+    const normalize = window.normalizeReplyCardText || (value => String(value || '').trim());
+    const normalized = [...set].map(normalize).filter(Boolean);
+    localStorage.setItem('disabledReplyItems', JSON.stringify([...new Set(normalized)]));
+    localStorage.setItem('disabledReplyItemsUpdatedAt', String(Date.now()));
     _notifyReplyPoolChanged();
 }
 
 function _notifyReplyPoolChanged() {
     window.SleepPush?.scheduleProfileSync?.();
     window.MilkMoments?.scheduleLibrarySync?.();
+    const profileSync = window.MilkSafeSync?.syncProfile?.();
+    if (profileSync && typeof profileSync.catch === 'function') {
+        profileSync.catch(error => console.warn('[reply-library] 屏蔽清单云端保存失败:', error));
+    }
 }
 
 function _toggleItemDisable(itemText) {
     const set = _getDisabledItemsSet();
-    if (set.has(itemText)) { set.delete(itemText); showNotification('已启用', 'success'); }
-    else { set.add(itemText); showNotification('已屏蔽（不会出现在随机回复中）', 'info'); }
+    const key = window.normalizeReplyCardText ? window.normalizeReplyCardText(itemText) : String(itemText || '').trim();
+    if (set.has(key)) { set.delete(key); showNotification('已启用', 'success'); }
+    else { set.add(key); showNotification('已屏蔽（不会出现在随机回复中）', 'info'); }
     _saveDisabledItemsSet(set);
     renderReplyLibrary();
 }
 
 function _batchToggleDisable() {
     const set = _getDisabledItemsSet();
-    const selectedItems = [..._batchSelectedIndices].map(i => customReplies[i]);
+    const normalize = window.normalizeReplyCardText || (value => String(value || '').trim());
+    const selectedItems = [..._batchSelectedIndices].map(i => normalize(customReplies[i])).filter(Boolean);
     const allDisabled = selectedItems.every(item => set.has(item));
     if (allDisabled) {
         selectedItems.forEach(item => set.delete(item));
@@ -1397,8 +1408,9 @@ function editItem(index, oldText) {
     else if (currentSubTab === 'intros') customIntros[index] = newText.trim();
     if (currentMajorTab === 'reply' && currentSubTab === 'custom') {
         const disabled = _getDisabledItemsSet();
-        if (disabled.delete(oldText)) {
-            disabled.add(newText.trim());
+        const normalize = window.normalizeReplyCardText || (value => String(value || '').trim());
+        if (disabled.delete(normalize(oldText))) {
+            disabled.add(normalize(newText));
             _saveDisabledItemsSet(disabled);
         }
     }

@@ -151,6 +151,8 @@ async function mergeRemote(){
 function profilePayload(){
  if(typeof customReplies==='undefined')return null;
  const source={customReplies,customReplyGroups:window.customReplyGroups||[],
+  disabledReplyItems:(()=>{try{return JSON.parse(localStorage.getItem('disabledReplyItems')||'[]')}catch(_){return[]}})(),
+  disabledReplyItemsUpdatedAt:Number(localStorage.getItem('disabledReplyItemsUpdatedAt')||0),
   customEmojis:typeof customEmojis==='undefined'?[]:customEmojis,
   customPokes:typeof customPokes==='undefined'?[]:customPokes,
   myPokes:typeof myPokes==='undefined'?[]:myPokes,
@@ -176,6 +178,10 @@ async function restoreProfileIfEmpty(){
  const p=rows?.[0]?.profile;if(!p)return;
  if(Array.isArray(p.customReplies))customReplies=p.customReplies;
  if(Array.isArray(p.customReplyGroups))window.customReplyGroups=p.customReplyGroups;
+ if(Array.isArray(p.disabledReplyItems)&&!localStorage.getItem('disabledReplyItems')){
+  localStorage.setItem('disabledReplyItems',JSON.stringify(p.disabledReplyItems));
+  if(p.disabledReplyItemsUpdatedAt)localStorage.setItem('disabledReplyItemsUpdatedAt',String(p.disabledReplyItemsUpdatedAt));
+ }
  if(Array.isArray(p.customEmojis))customEmojis=p.customEmojis;
  if(Array.isArray(p.customPokes))customPokes=p.customPokes;
  if(Array.isArray(p.myPokes))myPokes=p.myPokes;

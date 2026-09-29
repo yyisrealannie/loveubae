@@ -16,13 +16,7 @@
         return number;
     }
     function eligibleCards() {
-        const replies = typeof customReplies !== 'undefined' ? customReplies : window._customReplies;
-        if (!Array.isArray(replies)) return [];
-        let disabled = new Set();
-        try { disabled = new Set(JSON.parse(localStorage.getItem('disabledReplyItems') || '[]')); } catch (_) {}
-        const groups = new Set();
-        (window.customReplyGroups || []).forEach(g => { if (g.disabled) (g.items || []).forEach(x => groups.add(x)); });
-        return replies.filter(x => typeof x === 'string' && x.trim() && !disabled.has(x) && !groups.has(x));
+        return window.getEnabledReplyPool?.() || [];
     }
     function randomAmount() {
         const specials = ['5.20','52.00','520.00','13.14','131.40','1314.00','888.00','666.00','999.00','1212.00','9.50','95.00','95.20','950.00'];

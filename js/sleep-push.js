@@ -152,8 +152,7 @@
 
     let profileSyncChain = Promise.resolve();
     function scheduleProfileSync() {
-        if (localExpiry() <= Date.now()) return;
-        // 顺序上传，避免快速连续屏蔽时较旧的请求最后写回服务器。
+        // 即使本机 activeUntil 丢失，也要更新仍存在的云端订阅；顺序上传避免旧请求覆盖新状态。
         profileSyncChain = profileSyncChain.then(() => syncProfile()).catch(error => {
             console.warn('[sleep-push] 字卡池同步失败', error);
         });
@@ -329,16 +328,8 @@
                 if (!result.data || !result.data.length) return 0;
 
                 let added = 0;
-                const blocked = new Set();
-                try {
-                    JSON.parse(localStorage.getItem('disabledReplyItems') || '[]')
-                        .forEach(text => blocked.add(String(text).trim().slice(0, 280)));
-                } catch (e) {}
-                if (window._milkAppReady) (window.customReplyGroups || []).forEach(group => {
-                    if (group.disabled) (group.items || []).forEach(text => blocked.add(String(text).trim().slice(0, 280)));
-                });
                 result.data.forEach(item => {
-                    if (blocked.has(String(item.body || '').trim())) return;
+                    if (window.isReplyCardDisabled?.(String(item.body || ''))) return;
                     const accepted = addMessage({
                         id: Date.parse(item.sent_at) || Date.now(),
                         // 推送表的 UUID 跨刷新、跨设备保持不变，安全同步也会沿用它。
