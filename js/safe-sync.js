@@ -1,15 +1,34 @@
 (function () {
 'use strict';
 const TABLE='milk_safe_messages', PROFILES='milk_safe_profiles', MEDIA='milk-chat-media';
+const RECENT_LIMIT=100, PAGE_SIZE=200, MAX_CATCHUP_PER_RUN=2000;
 let client=null, user=null, busy=null, merging=null, starting=null,
  lastOk=Number(localStorage.getItem('milkSafeLastOk')||0), lastError='';
-let known=new Set(), queue=new Map();
+let known=new Set(), queue=new Map(), mergeProgress=0, olderAvailable=true;
 const device=(()=>{let d=localStorage.getItem('milkSafeDevice');if(!d){d=crypto.randomUUID();localStorage.setItem('milkSafeDevice',d)}return d})();
 const auto=()=>localStorage.getItem('milkCloudAutoSync')!=='false';
 const keyOf=m=>String(m.syncId||(device+':'+m.id));
 const liveByKey=key=>hasMessages()?messages.find(m=>keyOf(m)===String(key)):null;
 const check=r=>{if(r.error)throw r.error;return r.data};
 const hasMessages=()=>typeof messages!=='undefined'&&Array.isArray(messages);
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const transient=e=>/too many connections|connection|timeout|timed out|network|fetch|PGRST003|53300|temporarily unavailable/i.test(e?.message||String(e));
+async function retryRead(task){
+ const delays=[700,1800,4000];
+ for(let attempt=0;;attempt++){
+  try{return check(await task())}
+  catch(e){if(attempt>=delays.length||!transient(e))throw e;await sleep(delays[attempt]+Math.floor(Math.random()*250))}
+ }
+}
+const cursorKey=kind=>'milkSafeCursor:'+kind+':'+user.id;
+const rowCursor=row=>({createdAt:row.created_at,messageKey:String(row.message_key)});
+const compareCursor=(a,b)=>a.createdAt===b.createdAt?String(a.messageKey).localeCompare(String(b.messageKey)):String(a.createdAt).localeCompare(String(b.createdAt));
+async function getCursor(kind){try{return await localforage.getItem(cursorKey(kind))}catch(e){report(e);return null}}
+async function setCursor(kind,value){try{await localforage.setItem(cursorKey(kind),value)}catch(e){report(e)}}
+async function setOlderAvailable(value){
+ olderAvailable=!!value;
+ try{await localforage.setItem(cursorKey('olderAvailable'),olderAvailable)}catch(e){report(e)}
+}
 function removeStableDuplicates(){
  if(!hasMessages())return 0;
  const seen=new Map();let removed=0;
@@ -33,7 +52,7 @@ function removeStableDuplicates(){
  return removed
 }
 function markOk(){lastOk=Date.now();localStorage.setItem('milkSafeLastOk',String(lastOk));status()}
-function statusText(){return (queue.size?'正在同步 '+queue.size+' 条':lastOk?'已同步':'已连接')
+function statusText(){return (merging?'正在合并云端记录'+(mergeProgress?' '+mergeProgress+' 条':''):queue.size?'正在同步 '+queue.size+' 条':lastOk?'已同步':'已连接')
  +(lastError?' · ⚠️ '+lastError.slice(0,70):'')}
 function status(){if(!user)return;for(const id of ['cloud-sync-inline-status','cloud-sync-status']){const e=document.getElementById(id);if(e)e.textContent=statusText()}}
 function report(e){lastError=e?.message||String(e);console.warn('[safe-sync]',e);status()}
@@ -45,8 +64,15 @@ async function connect(){
  if(bound && bound!==next.id)throw new Error('此设备已有另一账号的本机记录，已阻止跨账号上传，请先保留原设备数据');
  if(!bound)localStorage.setItem('milkSafeBoundUser',next.id);
  if(user?.id!==next.id){
-  user=next;known=new Set();queue=new Map();
-  try{const saved=await localforage.getItem('milkSafeAck:'+user.id);if(Array.isArray(saved))known=new Set(saved)}
+  user=next;known=new Set();queue=new Map();olderAvailable=true;
+  try{
+   const [saved,olderState]=await Promise.all([
+    localforage.getItem('milkSafeAck:'+user.id),
+    localforage.getItem(cursorKey('olderAvailable'))
+   ]);
+   if(Array.isArray(saved))known=new Set(saved);
+   olderAvailable=olderState!==false
+  }
   catch(e){report(e)}
  }
  return true
@@ -82,6 +108,7 @@ async function saveKnown(){try{await localforage.setItem('milkSafeAck:'+user.id,
 async function flush(force=false){
  if(busy)return busy;
  busy=(async()=>{
+  if(merging){if(force)await merging;else return {pending:queue.size,deferred:true}}
   if(!await connect())throw new Error('请先登录 Supabase');
   if(!force&&!auto())return {pending:queue.size};
   if(hasMessages())messages.forEach(enqueue);
@@ -95,59 +122,121 @@ async function flush(force=false){
  })().finally(()=>{busy=null});
  return busy
 }
-async function mergeRemote(){
- if(merging)return merging;
+async function signedUrlsFor(rows,ids){
+ const paths=[];
+ for(const row of rows||[]){
+  if(!row.media_path)continue;
+  const local=ids.get(row.message_key)||liveByKey(row.message_key);
+  if(!local||!local.image||(!local._signedAt||Date.now()-local._signedAt>20*3600000))paths.push(row.media_path)
+ }
+ const unique=[...new Set(paths)];if(!unique.length)return new Map();
+ try{
+  const data=await retryRead(()=>client.storage.from(MEDIA).createSignedUrls(unique,86400));
+  const urls=new Map();(data||[]).forEach((item,index)=>{if(item?.signedUrl)urls.set(item.path||unique[index],item.signedUrl)});return urls
+ }catch(e){report(e);return new Map()}
+}
+async function absorbRows(rows,ids){
+ const urls=await signedUrlsFor(rows,ids);let added=0;
+ for(const row of rows||[]){
+  known.add(row.message_key);
+  const existing=ids.get(row.message_key)||liveByKey(row.message_key);
+  if(existing){
+   ids.set(row.message_key,existing);
+   if(row.media_path&&urls.has(row.media_path)){existing.image=urls.get(row.media_path);existing.mediaPath=row.media_path;existing._signedAt=Date.now()}
+   continue
+  }
+  if(!row.message||typeof row.message!=='object')continue;
+  const m={...row.message,syncId:row.message_key,timestamp:new Date(row.message.timestamp||row.created_at)};
+  if(row.media_path){m.mediaPath=row.media_path;if(urls.has(row.media_path)){m.image=urls.get(row.media_path);m._signedAt=Date.now()}}
+  const concurrent=liveByKey(row.message_key);
+  if(concurrent){ids.set(row.message_key,concurrent);continue}
+  messages.push(m);ids.set(row.message_key,m);added++
+ }
+ return added
+}
+async function persistMerge(changed){
+ if(changed){messages.sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));if(typeof renderMessages==='function')renderMessages(true);await saveData()}
+ await saveKnown();lastError='';markOk()
+}
+async function newestRows(limit=RECENT_LIMIT){
+ const rows=await retryRead(()=>client.from(TABLE).select('message_key,message,media_path,created_at')
+  .order('created_at',{ascending:false}).order('message_key',{ascending:false}).limit(limit));
+ return (rows||[]).slice().reverse()
+}
+async function forwardRows(cursor,limit=PAGE_SIZE){
+ const rows=await retryRead(()=>client.from(TABLE).select('message_key,message,media_path,created_at')
+  .gte('created_at',cursor.createdAt).order('created_at',{ascending:true}).order('message_key',{ascending:true}).limit(limit+1));
+ return (rows||[]).filter(row=>compareCursor(rowCursor(row),cursor)>0).slice(0,limit)
+}
+async function olderRows(cursor,limit=RECENT_LIMIT){
+ const rows=await retryRead(()=>client.from(TABLE).select('message_key,message,media_path,created_at')
+  .lte('created_at',cursor.createdAt).order('created_at',{ascending:false}).order('message_key',{ascending:false}).limit(limit+2));
+ const candidates=(rows||[]).filter(row=>compareCursor(rowCursor(row),cursor)<0);
+ return {rows:candidates.slice(0,limit).reverse(),more:candidates.length>limit}
+}
+async function mergeRemote(options={}){
+ const mode=options.mode||'recent';
+ if(merging){
+  if(mode==='older')return merging.then(()=>mergeRemote(options));
+  return merging
+ }
  merging=(async()=>{
   if(!await connect())throw new Error('请先登录 Supabase');
-  if(!hasMessages())return {added:0};
-  // 上一次并发回填若留下了相同稳定 ID 的副本，在读取云端前先安全收拢。
-  // 不按文字判断，用户有意重复发送的内容不会被删除。
-  let removed=removeStableDuplicates(),added=0,page=0,ids=new Map(messages.map(m=>[keyOf(m),m]));
-  while(page<100){
-   const rows=check(await client.from(TABLE).select('message_key,message,media_path,created_at')
-    .order('created_at',{ascending:true}).order('message_key',{ascending:true}).range(page*100,page*100+99));
-   for(const row of rows||[]){
-    known.add(row.message_key);
-    // ids 是本轮开始时的快照；发送可能在查询等待期间发生，所以必须检查实时数组。
-    const existing=ids.get(row.message_key)||liveByKey(row.message_key);
-    if(existing){
-     ids.set(row.message_key,existing);
-     const local=existing;
-     if(row.media_path && (!local.image || /^https:/.test(local.image)) && (!local._signedAt || Date.now()-local._signedAt>20*3600000)){
-      try{local.image=check(await client.storage.from(MEDIA).createSignedUrl(row.media_path,86400)).signedUrl;local._signedAt=Date.now()}
-      catch(e){report(e)}
-     }
-     continue;
-    }
-    const m=row.message;
-    if(!m||typeof m!=='object')continue;
-    m.syncId=row.message_key;
-    if(row.media_path){
-     m.mediaPath=row.media_path;
-     try{m.image=check(await client.storage.from(MEDIA).createSignedUrl(row.media_path,86400)).signedUrl;m._signedAt=Date.now()}
-     catch(e){report(e)}
-    }
-    m.timestamp=new Date(m.timestamp||row.created_at);
-    // 签名 URL 的 await 期间也可能刚好产生本地消息，写入前再做最后一次实时检查。
-    const concurrent=liveByKey(row.message_key);
-    if(concurrent){
-     ids.set(row.message_key,concurrent);
-     if(row.media_path&&m.image&&!concurrent.image){concurrent.image=m.image;concurrent.mediaPath=row.media_path;concurrent._signedAt=m._signedAt}
-     continue
-    }
-    messages.push(m);ids.set(row.message_key,m);added++
+  if(!hasMessages())return {added:0,removed:0};
+  let removed=removeStableDuplicates(),added=0,more=false;
+  const ids=new Map(messages.map(m=>[keyOf(m),m]));
+  if(mode==='older'){
+   if(!olderAvailable)return {added:0,removed,more:false,mode:'older'};
+   let oldest=await getCursor('oldest');
+   if(!oldest){
+    const seed=await newestRows(RECENT_LIMIT+1);
+    if(!seed.length){await setOlderAvailable(false);return {added:0,removed,more:false,mode:'older'}}
+    const recent=seed.slice(-RECENT_LIMIT);
+    oldest=rowCursor(recent[0]);await setCursor('oldest',oldest);await setOlderAvailable(seed.length>RECENT_LIMIT)
    }
-   if(!rows||rows.length<100)break;page++
+   if(!olderAvailable)return {added:0,removed,more:false,mode:'older'};
+   const page=await olderRows(oldest),rows=page.rows;
+   added+=await absorbRows(rows,ids);mergeProgress+=rows.length;
+   // 云端旧消息加入数组后，要同时扩大当前渲染窗口，才能真的出现在向上滑的位置。
+   if(added&&typeof displayedMessageCount==='number')displayedMessageCount=Math.min(messages.length,displayedMessageCount+added);
+   if(rows.length){await setCursor('oldest',rowCursor(rows[0]));await setOlderAvailable(page.more);await persistMerge(added||removed)}
+   else await setOlderAvailable(false);
+   more=page.more;
+   return {added,removed,more,mode:'older'}
   }
-  if(added||removed){
-   messages.sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
-   if(typeof renderMessages==='function')renderMessages(true);
-   try{await saveData()}catch(e){report(e)}
+
+  let cursor=await getCursor('latest'),bootstrapCursor=false;
+  if(!cursor&&messages.length===0){
+   const seed=await newestRows(RECENT_LIMIT+1),rows=seed.slice(-RECENT_LIMIT);
+   added+=await absorbRows(rows,ids);mergeProgress+=rows.length;
+   await setOlderAvailable(seed.length>RECENT_LIMIT);
+   if(rows.length){await persistMerge(added||removed);await setCursor('oldest',rowCursor(rows[0]));cursor=rowCursor(rows[rows.length-1]);await setCursor('latest',cursor)}
+   return {added,removed,more:false,mode:'recent',initial:true}
   }
-  await saveKnown();status();return {added,removed}
- })().finally(()=>{merging=null});
+  if(!cursor){
+   const latestLocal=messages.reduce((max,m)=>Math.max(max,new Date(m.timestamp||0).getTime()||0),0);
+   cursor={createdAt:new Date(Math.max(0,latestLocal-24*3600000)).toISOString(),messageKey:''};bootstrapCursor=true;
+   // 已有本机历史的旧设备只补最新缺口，不再把同一批云端旧记录反复拉回。
+   await setOlderAvailable(false)
+  }
+  let processed=0;
+  while(processed<MAX_CATCHUP_PER_RUN){
+   const rows=await forwardRows(cursor,Math.min(PAGE_SIZE,MAX_CATCHUP_PER_RUN-processed));
+   if(!rows.length)break;
+   added+=await absorbRows(rows,ids);processed+=rows.length;mergeProgress=processed;
+   await persistMerge(added||removed);
+   if(!await getCursor('oldest'))await setCursor('oldest',rowCursor(rows[0]));
+   cursor=rowCursor(rows[rows.length-1]);await setCursor('latest',cursor);
+   if(rows.length<PAGE_SIZE)break
+  }
+  // 旧设备第一次升级后即使没有新行，也要记住已检查的位置，避免每次回前台都重复扫描 24 小时窗口。
+  if(bootstrapCursor&&processed===0)await setCursor('latest',cursor);
+  more=processed>=MAX_CATCHUP_PER_RUN;
+  return {added,removed,more,mode:'recent'}
+ })().finally(()=>{merging=null;mergeProgress=0;status()});
  return merging
 }
+const mergeOlder=()=>mergeRemote({mode:'older'});
 function profilePayload(){
  if(typeof customReplies==='undefined')return null;
  const source={customReplies,customReplyGroups:window.customReplyGroups||[],
@@ -204,5 +293,5 @@ document.addEventListener('DOMContentLoaded',()=>{
  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&auto())start().catch(report)});
  setInterval(()=>{if(!document.hidden&&auto()){flush().catch(report);syncProfile().catch(report)}},20000)
 });
-window.MilkSafeSync={start,recordMessage,flush,mergeRemote,statusText,syncProfile};
+window.MilkSafeSync={start,recordMessage,flush,mergeRemote,mergeOlder,hasOlder:()=>olderAvailable,statusText,syncProfile};
 })();
