@@ -1258,7 +1258,8 @@ function renderMessages(preserveScroll = false) {
 
     const historyLoader = document.getElementById('history-loader');
     if (historyLoader) {
-        historyLoader.style.display = startIndex > 0 ? 'flex' : 'none';
+        const hasCloudHistory = !!window.MilkSafeSync?.hasOlder?.();
+        historyLoader.style.display = (startIndex > 0 || hasCloudHistory) ? 'flex' : 'none';
     }
 
     DOMElements.emptyState.style.display = totalMessages === 0 ? 'flex' : 'none';
@@ -2431,9 +2432,29 @@ document.addEventListener('DOMContentLoaded', function() {
     const historyLoader = document.getElementById('history-loader');
     
     if (chatArea && historyLoader && typeof IntersectionObserver !== 'undefined') {
-        const observer = new IntersectionObserver((entries) => {
-            if (entries[0].isIntersecting && messages.length > displayedMessageCount) {
+        let cloudHistoryLoading = false;
+        const observer = new IntersectionObserver(async (entries) => {
+            if (!entries[0].isIntersecting) return;
+            if (messages.length > displayedMessageCount) {
                 loadMoreHistory();
+                return;
+            }
+            if (cloudHistoryLoading || !window.MilkSafeSync?.hasOlder?.()) return;
+
+            cloudHistoryLoading = true;
+            historyLoader.style.display = 'flex';
+            try {
+                await window.MilkSafeSync.mergeOlder();
+            } catch (error) {
+                console.warn('[safe-sync] 加载更早记录失败:', error);
+                if (typeof showNotification === 'function') {
+                    showNotification('更早记录暂时没有加载成功，稍后向上滑可重试', 'warning', 3500);
+                }
+            } finally {
+                cloudHistoryLoading = false;
+                if (messages.length <= displayedMessageCount && !window.MilkSafeSync?.hasOlder?.()) {
+                    historyLoader.style.display = 'none';
+                }
             }
         }, {
             root: chatArea,
