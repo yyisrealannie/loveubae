@@ -110,7 +110,7 @@
         modal.innerHTML = `
             <div class="modal-content cloud-sync-card">
                 <div class="modal-title"><i class="fas fa-cloud"></i><span>跨设备同步</span></div>
-                <div class="cloud-sync-note">新消息按条追加上传；断网时会留在本机，恢复联网后重试。云端合并不会覆盖本机记录。</div>
+                <div class="cloud-sync-note">新设备默认只载入最近 100 条，让打开速度更快；完整聊天仍保存在云端，可按需继续加载。同步按稳定编号去重，不会覆盖本机记录。</div>
                 <div class="cloud-sync-divider">账户</div>
                 <input class="modal-input" id="cloud-sync-email" type="email" autocomplete="email" placeholder="邮箱">
                 <input class="modal-input" id="cloud-sync-password" type="password" autocomplete="current-password" placeholder="密码（至少 6 位）">
@@ -134,8 +134,11 @@
                     </div>
                 </div>
                 <div class="cloud-sync-actions">
-                    <button class="modal-btn modal-btn-secondary" id="cloud-sync-download"><i class="fas fa-cloud-arrow-down"></i> 合并云端记录（不覆盖）</button>
+                    <button class="modal-btn modal-btn-secondary" id="cloud-sync-download"><i class="fas fa-cloud-arrow-down"></i> 同步最新记录</button>
                     <button class="modal-btn modal-btn-primary" id="cloud-sync-upload"><i class="fas fa-cloud-arrow-up"></i> 立即增量上传</button>
+                </div>
+                <div class="cloud-sync-actions">
+                    <button class="modal-btn modal-btn-secondary" id="cloud-sync-older"><i class="fas fa-clock-rotate-left"></i> 加载更早 100 条</button>
                 </div>
                 <div class="cloud-sync-actions">
                     <button class="modal-btn modal-btn-secondary" id="cloud-sync-logout">退出登录</button>
@@ -234,6 +237,7 @@
         });
         modal.querySelector('#cloud-sync-upload').addEventListener('click', upload);
         modal.querySelector('#cloud-sync-download').addEventListener('click', download);
+        modal.querySelector('#cloud-sync-older').addEventListener('click', downloadOlder);
         modal.querySelector('#cloud-sync-logout').addEventListener('click', async () => {
             const c = getClient();
             if (c) await c.auth.signOut();
@@ -284,12 +288,41 @@
             showNotification('正在检查云端记录…', 'info', 2500);
             if (!window.MilkSafeSync) throw new Error('安全同步模块未加载');
             const result = await window.MilkSafeSync.mergeRemote();
-            showNotification(result.added
-                ? '已合并 '+result.added+' 条云端消息，本机原有记录保留'
-                : '没有需要合并的新记录；本机内容没有被覆盖', 'success', 5000);
+            let message;
+            if (result.initial) message = result.added
+                ? '此设备已载入最近 '+result.added+' 条；完整历史仍保存在云端'
+                : '云端暂时没有聊天记录';
+            else if (result.added) message = '已合并 '+result.added+' 条云端消息，本机原有记录保留';
+            else message = '没有需要合并的新记录；本机内容没有被覆盖';
+            if (result.more) message += '；其余新增记录将在下次分段同步';
+            showNotification(message, 'success', 5500);
             await refreshStatus();
         } catch (e) {
             showNotification('合并失败：'+(e.message || '未知错误')+'；本机记录未清除', 'error', 6000);
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = originalHtml;
+            }
+        }
+    }
+
+    async function downloadOlder() {
+        const button = document.getElementById('cloud-sync-older');
+        const originalHtml = button && button.innerHTML;
+        try {
+            if (button) {
+                button.disabled = true;
+                button.textContent = '正在加载…';
+            }
+            if (!window.MilkSafeSync) throw new Error('安全同步模块未加载');
+            const result = await window.MilkSafeSync.mergeOlder();
+            showNotification(result.added
+                ? '已加载更早 '+result.added+' 条'+(result.more ? '，需要时可继续加载' : '')
+                : '没有更早的云端记录了', 'success', 5000);
+            await refreshStatus();
+        } catch (e) {
+            showNotification('加载失败：'+(e.message || '未知错误')+'；本机记录未清除', 'error', 6000);
         } finally {
             if (button) {
                 button.disabled = false;
@@ -314,6 +347,7 @@
         },
         upload,
         download,
+        downloadOlder,
         getClient,
         currentUser,
         refreshStatus
