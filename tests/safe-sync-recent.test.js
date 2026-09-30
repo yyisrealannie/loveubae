@@ -98,6 +98,7 @@ function makeRow(index) {
     assert.equal(messages.length, 100);
     assert.equal(messages[0].syncId, 'key-0151');
     assert.equal(cloudRows.length, 250, 'recent bootstrap must not remove cloud history');
+    assert.equal(api.hasOlder(), true, 'more cloud history should remain available');
 
     const repeat = await api.mergeRemote();
     assert.equal(repeat.added, 0);
@@ -112,11 +113,18 @@ function makeRow(index) {
     assert.equal(older.added, 100);
     assert.equal(messages[0].syncId, 'key-0051');
     assert.equal(messages.length, 201);
+    assert.equal(api.hasOlder(), true);
+
+    const oldest = await api.mergeOlder();
+    assert.equal(oldest.added, 50);
+    assert.equal(oldest.more, false);
+    assert.equal(api.hasOlder(), false, 'the loader should stop after cloud history is exhausted');
+    assert.equal(messages[0].syncId, 'key-0001');
 
     messages.push({ ...messages[0] });
     const deduped = await api.mergeRemote();
     assert.equal(deduped.removed, 1, 'only an identical stable ID should be deduplicated');
-    assert.equal(messages.filter(message => message.text === '相同文案').length, 20,
+    assert.equal(messages.filter(message => message.text === '相同文案').length, 25,
         'same text with different stable IDs must remain separate messages');
 
     console.log('safe-sync recent/cursor/older/dedup tests passed');
