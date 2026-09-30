@@ -4,7 +4,7 @@ const TABLE='milk_safe_messages', PROFILES='milk_safe_profiles', MEDIA='milk-cha
 const RECENT_LIMIT=100, PAGE_SIZE=200, MAX_CATCHUP_PER_RUN=2000;
 let client=null, user=null, busy=null, merging=null, starting=null,
  lastOk=Number(localStorage.getItem('milkSafeLastOk')||0), lastError='';
-let known=new Set(), queue=new Map(), mergeProgress=0;
+let known=new Set(), queue=new Map(), mergeProgress=0, olderAvailable=true;
 const device=(()=>{let d=localStorage.getItem('milkSafeDevice');if(!d){d=crypto.randomUUID();localStorage.setItem('milkSafeDevice',d)}return d})();
 const auto=()=>localStorage.getItem('milkCloudAutoSync')!=='false';
 const keyOf=m=>String(m.syncId||(device+':'+m.id));
@@ -25,6 +25,10 @@ const rowCursor=row=>({createdAt:row.created_at,messageKey:String(row.message_ke
 const compareCursor=(a,b)=>a.createdAt===b.createdAt?String(a.messageKey).localeCompare(String(b.messageKey)):String(a.createdAt).localeCompare(String(b.createdAt));
 async function getCursor(kind){try{return await localforage.getItem(cursorKey(kind))}catch(e){report(e);return null}}
 async function setCursor(kind,value){try{await localforage.setItem(cursorKey(kind),value)}catch(e){report(e)}}
+async function setOlderAvailable(value){
+ olderAvailable=!!value;
+ try{await localforage.setItem(cursorKey('olderAvailable'),olderAvailable)}catch(e){report(e)}
+}
 function removeStableDuplicates(){
  if(!hasMessages())return 0;
  const seen=new Map();let removed=0;
@@ -60,8 +64,15 @@ async function connect(){
  if(bound && bound!==next.id)throw new Error('此设备已有另一账号的本机记录，已阻止跨账号上传，请先保留原设备数据');
  if(!bound)localStorage.setItem('milkSafeBoundUser',next.id);
  if(user?.id!==next.id){
-  user=next;known=new Set();queue=new Map();
-  try{const saved=await localforage.getItem('milkSafeAck:'+user.id);if(Array.isArray(saved))known=new Set(saved)}
+  user=next;known=new Set();queue=new Map();olderAvailable=true;
+  try{
+   const [saved,olderState]=await Promise.all([
+    localforage.getItem('milkSafeAck:'+user.id),
+    localforage.getItem(cursorKey('olderAvailable'))
+   ]);
+   if(Array.isArray(saved))known=new Set(saved);
+   olderAvailable=olderState!==false
+  }
   catch(e){report(e)}
  }
  return true
@@ -159,8 +170,9 @@ async function forwardRows(cursor,limit=PAGE_SIZE){
 }
 async function olderRows(cursor,limit=RECENT_LIMIT){
  const rows=await retryRead(()=>client.from(TABLE).select('message_key,message,media_path,created_at')
-  .lte('created_at',cursor.createdAt).order('created_at',{ascending:false}).order('message_key',{ascending:false}).limit(limit+1));
- return (rows||[]).filter(row=>compareCursor(rowCursor(row),cursor)<0).slice(0,limit).reverse()
+  .lte('created_at',cursor.createdAt).order('created_at',{ascending:false}).order('message_key',{ascending:false}).limit(limit+2));
+ const candidates=(rows||[]).filter(row=>compareCursor(rowCursor(row),cursor)<0);
+ return {rows:candidates.slice(0,limit).reverse(),more:candidates.length>limit}
 }
 async function mergeRemote(options={}){
  const mode=options.mode||'recent';
@@ -174,25 +186,38 @@ async function mergeRemote(options={}){
   let removed=removeStableDuplicates(),added=0,more=false;
   const ids=new Map(messages.map(m=>[keyOf(m),m]));
   if(mode==='older'){
+   if(!olderAvailable)return {added:0,removed,more:false,mode:'older'};
    let oldest=await getCursor('oldest');
-   if(!oldest){const seed=await newestRows();if(!seed.length)return {added:0,removed,more:false};oldest=rowCursor(seed[0]);await setCursor('oldest',oldest)}
-   const rows=await olderRows(oldest);
+   if(!oldest){
+    const seed=await newestRows(RECENT_LIMIT+1);
+    if(!seed.length){await setOlderAvailable(false);return {added:0,removed,more:false,mode:'older'}}
+    const recent=seed.slice(-RECENT_LIMIT);
+    oldest=rowCursor(recent[0]);await setCursor('oldest',oldest);await setOlderAvailable(seed.length>RECENT_LIMIT)
+   }
+   if(!olderAvailable)return {added:0,removed,more:false,mode:'older'};
+   const page=await olderRows(oldest),rows=page.rows;
    added+=await absorbRows(rows,ids);mergeProgress+=rows.length;
-   if(rows.length){await persistMerge(added||removed);await setCursor('oldest',rowCursor(rows[0]))}
-   more=rows.length===RECENT_LIMIT;
+   // 云端旧消息加入数组后，要同时扩大当前渲染窗口，才能真的出现在向上滑的位置。
+   if(added&&typeof displayedMessageCount==='number')displayedMessageCount=Math.min(messages.length,displayedMessageCount+added);
+   if(rows.length){await setCursor('oldest',rowCursor(rows[0]));await setOlderAvailable(page.more);await persistMerge(added||removed)}
+   else await setOlderAvailable(false);
+   more=page.more;
    return {added,removed,more,mode:'older'}
   }
 
   let cursor=await getCursor('latest'),bootstrapCursor=false;
   if(!cursor&&messages.length===0){
-   const rows=await newestRows();
+   const seed=await newestRows(RECENT_LIMIT+1),rows=seed.slice(-RECENT_LIMIT);
    added+=await absorbRows(rows,ids);mergeProgress+=rows.length;
+   await setOlderAvailable(seed.length>RECENT_LIMIT);
    if(rows.length){await persistMerge(added||removed);await setCursor('oldest',rowCursor(rows[0]));cursor=rowCursor(rows[rows.length-1]);await setCursor('latest',cursor)}
    return {added,removed,more:false,mode:'recent',initial:true}
   }
   if(!cursor){
    const latestLocal=messages.reduce((max,m)=>Math.max(max,new Date(m.timestamp||0).getTime()||0),0);
-   cursor={createdAt:new Date(Math.max(0,latestLocal-24*3600000)).toISOString(),messageKey:''};bootstrapCursor=true
+   cursor={createdAt:new Date(Math.max(0,latestLocal-24*3600000)).toISOString(),messageKey:''};bootstrapCursor=true;
+   // 已有本机历史的旧设备只补最新缺口，不再把同一批云端旧记录反复拉回。
+   await setOlderAvailable(false)
   }
   let processed=0;
   while(processed<MAX_CATCHUP_PER_RUN){
@@ -268,5 +293,5 @@ document.addEventListener('DOMContentLoaded',()=>{
  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&auto())start().catch(report)});
  setInterval(()=>{if(!document.hidden&&auto()){flush().catch(report);syncProfile().catch(report)}},20000)
 });
-window.MilkSafeSync={start,recordMessage,flush,mergeRemote,mergeOlder,statusText,syncProfile};
+window.MilkSafeSync={start,recordMessage,flush,mergeRemote,mergeOlder,hasOlder:()=>olderAvailable,statusText,syncProfile};
 })();
