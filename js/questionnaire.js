@@ -31,7 +31,8 @@
     return Math.random();
   }
   function responseDelayMinutes(count, random = randomUnit()) {
-    const range = count <= 3 ? [3, 8] : count <= 6 ? [8, 18] : [15, 30];
+    // 按题量留出自然填写时间，但保证从发布到收到答案不超过 12 小时。
+    const range = count <= 3 ? [60, 240] : count <= 6 ? [180, 480] : [360, 720];
     return range[0] + Math.floor(Math.max(0, Math.min(.999999, random)) * (range[1] - range[0] + 1));
   }
   function hashString(value) {
@@ -304,7 +305,7 @@
       records.push(record); await saveLocal();
       if (await connect()) await syncOne(record);
       await saveLocal(); draft = freshDraft(); tab = 'archive'; renderCurrent(); scheduleDueCheck();
-      notify(`已经交给${partnerName()}，大约 ${delay} 分钟后填好`, 'success');
+      notify(`已经交给${partnerName()}，会在 12 小时内填好`, 'success');
     } catch (error) {
       console.warn('[questionnaire] 云端保存稍后重试:', error);
       await saveLocal(); draft = freshDraft(); tab = 'archive'; renderCurrent(); scheduleDueCheck();
