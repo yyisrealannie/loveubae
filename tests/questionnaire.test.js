@@ -9,12 +9,12 @@ const context = vm.createContext({ window, document, crypto: webcrypto, console,
 vm.runInContext(fs.readFileSync('js/questionnaire.js', 'utf8'), context, { filename: 'js/questionnaire.js' });
 
 const test = window.MilkQuestionnaires._test;
-assert.equal(test.responseDelayMinutes(1, 0), 3);
-assert.equal(test.responseDelayMinutes(3, 0.999999), 8);
-assert.equal(test.responseDelayMinutes(4, 0), 8);
-assert.equal(test.responseDelayMinutes(6, 0.999999), 18);
-assert.equal(test.responseDelayMinutes(7, 0), 15);
-assert.equal(test.responseDelayMinutes(10, 0.999999), 30);
+assert.equal(test.responseDelayMinutes(1, 0), 60);
+assert.equal(test.responseDelayMinutes(3, 0.999999), 240);
+assert.equal(test.responseDelayMinutes(4, 0), 180);
+assert.equal(test.responseDelayMinutes(6, 0.999999), 480);
+assert.equal(test.responseDelayMinutes(7, 0), 360);
+assert.equal(test.responseDelayMinutes(10, 0.999999), 720);
 
 const valid = test.validateDraft({
     title: ' 睡前小问卷 ',
