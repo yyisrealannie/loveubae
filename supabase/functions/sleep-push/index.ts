@@ -99,71 +99,78 @@ Deno.serve(async (request) => {
     }
 
     const now = new Date()
-    const { data: due, error } = await admin
+    // 先取所有仍有效的端点，再按用户分组。同一账号即使残留多个设备端点，
+    // 每个时间点也只生成一条聊天消息，而不是每个端点各生成一条。
+    const { data: activeSubscriptions, error } = await admin
       .from('milk_push_subscriptions')
       .select('*')
       .gt('active_until', now.toISOString())
-      .lte('next_push_at', now.toISOString())
-      .limit(100)
+      .order('updated_at', { ascending: false })
+      .limit(500)
     if (error) throw error
 
     let sent = 0
     let generated = 0
     let removed = 0
-    for (const row of due || []) {
-      const intervalMinutes = Math.max(1, Math.min(120, Number(row.push_interval_minutes) || 5))
+    type SubscriptionRow = NonNullable<typeof activeSubscriptions>[number]
+    const subscriptionsByUser = new Map<string, SubscriptionRow[]>()
+    for (const row of activeSubscriptions || []) {
+      const rows = subscriptionsByUser.get(row.user_id) || []
+      rows.push(row)
+      subscriptionsByUser.set(row.user_id, rows)
+    }
+
+    let checked = 0
+    for (const [userId, rows] of subscriptionsByUser) {
+      if (!rows?.some((row) => new Date(row.next_push_at).getTime() <= now.getTime())) continue
+      checked += rows.length
+      const profile = rows[0]
+      const intervalMinutes = Math.max(1, Math.min(120, Number(profile.push_interval_minutes) || 5))
       const nextPushAt = new Date(Date.now() + intervalMinutes * 60_000).toISOString()
-      const pool = Array.isArray(row.reply_pool) ? row.reply_pool.filter(Boolean) : []
+      const pool = Array.isArray(profile.reply_pool) ? profile.reply_pool.filter(Boolean) : []
       if (pool.length === 0) {
-        await admin.from('milk_push_subscriptions').update({ next_push_at: nextPushAt })
-          .eq('user_id', row.user_id).eq('endpoint', row.endpoint)
+        await admin.from('milk_push_subscriptions').update({ next_push_at: nextPushAt }).eq('user_id', userId)
         continue
       }
 
       const body = String(pool[Math.floor(Math.random() * pool.length)]).slice(0, 280)
-      // “完全不显示”只控制系统通知的可见性，不能关闭后台消息生成。
-      // 先把消息写入待收表；用户下次打开页面时会正常导入聊天记录。
-      if (row.privacy_mode === 'off') {
-        try {
-          const { error: messageError } = await admin.from('milk_push_messages').insert({ user_id: row.user_id, body })
-          if (messageError) throw messageError
-          const { error: scheduleError } = await admin.from('milk_push_subscriptions').update({ next_push_at: nextPushAt })
-            .eq('user_id', row.user_id).eq('endpoint', row.endpoint)
-          if (scheduleError) throw scheduleError
-          generated += 1
-        } catch (messageError) {
-          // 一条订阅失败不能阻断同一轮里其他用户的后台消息。
-          console.error('Silent background message failed', row.user_id, messageError)
-        }
-        continue
-      }
-
-      const notification = row.privacy_mode === 'generic'
-        ? { title: 'loveubae', body: '您收到了一条新消息', url: './', tag: 'loveubae-sleep-message' }
-        : { title: row.partner_name || '对方', body, url: './', tag: 'loveubae-sleep-message' }
-
       try {
-        await webpush.sendNotification(row.subscription, JSON.stringify(notification), { TTL: 3600 })
-        const { error: messageError } = await admin.from('milk_push_messages').insert({ user_id: row.user_id, body })
+        // 消息先且只落库一次；系统通知失败时，下次打开网页仍然不会丢消息。
+        const { data: message, error: messageError } = await admin.from('milk_push_messages')
+          .insert({ user_id: userId, body }).select('id').single()
         if (messageError) throw messageError
         const { error: scheduleError } = await admin.from('milk_push_subscriptions').update({ next_push_at: nextPushAt })
-          .eq('user_id', row.user_id).eq('endpoint', row.endpoint)
+          .eq('user_id', userId)
         if (scheduleError) throw scheduleError
-        sent += 1
         generated += 1
-      } catch (pushError) {
-        const statusCode = Number((pushError as { statusCode?: number }).statusCode || 0)
-        if (statusCode === 404 || statusCode === 410) {
-          await admin.from('milk_push_subscriptions').delete()
-            .eq('user_id', row.user_id).eq('endpoint', row.endpoint)
-          removed += 1
-        } else {
-          console.error('Push failed', row.user_id, statusCode, pushError)
+
+        for (const row of rows) {
+          // “完全不显示”只隐藏系统通知，聊天消息仍已保存在上面的待收表。
+          if (row.privacy_mode === 'off') continue
+          const notification = row.privacy_mode === 'generic'
+            ? { title: 'loveubae', body: '您收到了一条新消息', url: './', tag: `loveubae-sleep-message-${message.id}` }
+            : { title: row.partner_name || '对方', body, url: './', tag: `loveubae-sleep-message-${message.id}` }
+          try {
+            await webpush.sendNotification(row.subscription, JSON.stringify(notification), { TTL: 3600 })
+            sent += 1
+          } catch (pushError) {
+            const statusCode = Number((pushError as { statusCode?: number }).statusCode || 0)
+            if (statusCode === 404 || statusCode === 410) {
+              await admin.from('milk_push_subscriptions').delete()
+                .eq('user_id', userId).eq('endpoint', row.endpoint)
+              removed += 1
+            } else {
+              console.error('Push failed', userId, statusCode, pushError)
+            }
+          }
         }
+      } catch (messageError) {
+        // 一个账号的数据库错误不能阻断同一轮里的其他账号。
+        console.error('Background message failed', userId, messageError)
       }
     }
 
-    return new Response(JSON.stringify({ checked: due?.length || 0, generated, sent, removed }), { headers: corsHeaders })
+    return new Response(JSON.stringify({ checked, generated, sent, removed }), { headers: corsHeaders })
   } catch (error) {
     console.error(error)
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
