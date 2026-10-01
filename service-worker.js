@@ -1,4 +1,4 @@
-const CACHE_NAME = 'loveubae-v42';
+const CACHE_NAME = 'loveubae-v43';
 const LOCAL_ASSETS = [
   './', './index.html', './manifest.webmanifest', './css/styles.css', './css/questionnaire.css?v=42',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
@@ -6,7 +6,7 @@ const LOCAL_ASSETS = [
   './js/core.js?v=41', './js/features/mood.js', './js/features/envelope.js',
   './js/features/reply-library.js?v=39', './js/features/theme-editor.js',
   './js/features/group-chat.js', './js/features/call.js', './js/games.js',
-  './js/features.js', './js/data.js', './js/cloud-sync.js?v=40', './js/safe-sync.js?v=41', './js/questionnaire.js?v=42', './js/moments.js?v=39', './js/wallet.js?v=39', './js/sleep-push.js?v=39', './js/onboarding.js',
+  './js/features.js', './js/data.js', './js/cloud-sync.js?v=40', './js/safe-sync.js?v=41', './js/questionnaire.js?v=42', './js/moments.js?v=39', './js/wallet.js?v=39', './js/sleep-push.js?v=43', './js/onboarding.js',
   './js/listeners.js', './js/app.js'
 ];
 
