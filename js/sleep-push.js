@@ -106,6 +106,12 @@
             : '后台生成后立即推送 · 当前每 ' + intervalMinutes() + ' 分钟一条';
         const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
         const expiry = localExpiry();
+        let subscription = null;
+        if (supported && Notification.permission === 'granted') {
+            try { subscription = await currentSubscription(false); } catch (error) {
+                console.warn('[sleep-push] 无法读取本机推送订阅', error);
+            }
+        }
         if (isIOS() && !isStandalone()) {
             el.text.textContent = '请用 Safari 添加到主屏幕，再从桌面图标打开';
             el.button.textContent = '待安装';
@@ -127,6 +133,14 @@
             el.button.disabled = true;
             if (el.test) el.test.disabled = true;
             if (el.disable) el.disable.disabled = expiry <= Date.now();
+        } else if (expiry > Date.now() && !subscription) {
+            el.text.textContent = Notification.permission === 'granted'
+                ? '这台手机的推送订阅已失效，请重新开启'
+                : '通知授权未完成，请重新开启并允许通知';
+            el.button.textContent = '重新开启';
+            el.button.disabled = false;
+            if (el.test) el.test.disabled = true;
+            if (el.disable) el.disable.disabled = false;
         } else if (expiry > Date.now()) {
             el.text.textContent = privacyMode === 'off'
                 ? '后台消息已开启，持续到 ' + formatTime(expiry) + '（不弹通知）'
@@ -226,6 +240,10 @@
             const result = await identity.client.from('milk_push_subscriptions')
                 .upsert(payload, { onConflict: 'user_id,endpoint' });
             if (result.error) throw result.error;
+            // 同一账号只保留当前手机的系统推送端点。旧端点会造成每轮后台任务重复生成消息。
+            const cleanup = await identity.client.from('milk_push_subscriptions')
+                .delete().eq('user_id', identity.user.id).neq('endpoint', subscription.endpoint);
+            if (cleanup.error) console.warn('[sleep-push] 旧推送端点清理失败，将由云端按账号去重', cleanup.error);
             localStorage.setItem(ACTIVE_UNTIL_KEY, String(activeUntil.getTime()));
             localStorage.setItem('notifEnabled', '1');
             if (typeof manageAutoSendTimer === 'function') manageAutoSendTimer();
@@ -269,9 +287,8 @@
         try {
             const identity = await cloudIdentity();
             const subscription = await currentSubscription(false);
-            if (!subscription || Notification.permission !== 'granted') {
-                throw new Error('请先点“开启”，完成通知授权');
-            }
+            if (Notification.permission !== 'granted') throw new Error('请点“重新开启”，并允许系统通知');
+            if (!subscription) throw new Error('这台手机的推送订阅已失效，请点“重新开启”');
             const result = await identity.client.functions.invoke('sleep-push', {
                 body: { action: 'test' }
             });
@@ -291,12 +308,11 @@
         try {
             const identity = await cloudIdentity();
             const subscription = await currentSubscription(false);
-            if (subscription) {
-                const result = await identity.client.from('milk_push_subscriptions')
-                    .delete().eq('user_id', identity.user.id).eq('endpoint', subscription.endpoint);
-                if (result.error) throw result.error;
-                await subscription.unsubscribe();
-            }
+            // 即使本机 PushSubscription 已丢失，也要关闭账号下遗留的云端端点。
+            const result = await identity.client.from('milk_push_subscriptions')
+                .delete().eq('user_id', identity.user.id);
+            if (result.error) throw result.error;
+            if (subscription) await subscription.unsubscribe();
             localStorage.removeItem(ACTIVE_UNTIL_KEY);
             localStorage.setItem('notifEnabled', '0');
             if (typeof manageAutoSendTimer === 'function') manageAutoSendTimer();
@@ -323,17 +339,24 @@
                     .select('id,body,sent_at')
                     .is('imported_at', null)
                     .order('sent_at', { ascending: true })
-                    .limit(50);
+                    .limit(500);
                 if (result.error) throw result.error;
                 if (!result.data || !result.data.length) return 0;
 
                 let added = 0;
+                const existing = new Set(
+                    typeof messages !== 'undefined' && Array.isArray(messages)
+                        ? messages.map(item => String(item.syncId || ''))
+                        : []
+                );
                 result.data.forEach(item => {
                     if (window.isReplyCardDisabled?.(String(item.body || ''))) return;
-                    const accepted = addMessage({
-                        id: Date.parse(item.sent_at) || Date.now(),
-                        // 推送表的 UUID 跨刷新、跨设备保持不变，安全同步也会沿用它。
-                        syncId: 'push:' + item.id,
+                    const syncId = 'push:' + item.id;
+                    if (existing.has(syncId)) return;
+                    const message = {
+                        id: 'push-' + item.id,
+                        // 推送表的 UUID 跨刷新、跨设备保持不变。
+                        syncId,
                         sender: (typeof settings !== 'undefined' && settings.partnerName) || '对方',
                         text: item.body,
                         timestamp: new Date(item.sent_at),
@@ -341,14 +364,26 @@
                         favorited: false,
                         note: null,
                         type: 'normal'
-                    });
-                    if (accepted !== false) added += 1;
+                    };
+                    messages.push(message);
+                    existing.add(syncId);
+                    added += 1;
                 });
+
+                // 一批积压消息只排序、渲染和保存一次，避免逐条操作 DOM 看起来像慢慢补出。
+                if (added > 0) {
+                    messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                    if (typeof renderMessages === 'function') renderMessages(false);
+                    if (typeof saveData === 'function') await saveData();
+                    if (window.MilkSafeSync?.flush) window.MilkSafeSync.flush().catch(console.warn);
+                }
 
                 const update = await identity.client.from('milk_push_messages')
                     .update({ imported_at: new Date().toISOString() })
                     .in('id', result.data.map(item => item.id));
                 if (update.error) throw update.error;
+                // 超过 500 条时继续整批吸收，但每批仍只刷新一次页面。
+                if (result.data.length === 500) schedulePendingImport(0);
                 return added;
             } catch (error) {
                 console.warn('[sleep-push] 待收消息导入失败，将在下次唤醒时重试', error);
@@ -371,15 +406,17 @@
     window.SleepPush = { enable, disable, test, setDuration, setPushInterval, refreshStatus, syncProfile, scheduleProfileSync, importPendingMessages };
     document.addEventListener('DOMContentLoaded', function () {
         refreshStatus();
-        // 原来等待 3.5 秒，造成系统通知已到而聊天页仍迟迟不显示。
-        schedulePendingImport(250);
     });
-    window.addEventListener('milk-app-ready', scheduleProfileSync);
+    window.addEventListener('milk-app-ready', function () {
+        scheduleProfileSync();
+        // 必须等本机历史读取完成后再合并推送消息，否则 loadData 可能覆盖刚导入的内容。
+        schedulePendingImport(0);
+    });
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') {
             refreshStatus();
             scheduleProfileSync();
-            schedulePendingImport(0);
+            if (window._milkAppReady) schedulePendingImport(0);
         }
     });
     if ('serviceWorker' in navigator) {
