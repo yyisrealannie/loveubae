@@ -911,6 +911,7 @@ function _getDisabledStickerItemsSet() {
 
 function _saveDisabledStickerItemsSet(set) {
     localStorage.setItem('disabledStickerItems', JSON.stringify([...set]));
+    window.MilkMoments?.scheduleLibrarySync?.();
 }
 
 function _saveDisabledItemsSet(set) {

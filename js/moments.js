@@ -153,6 +153,80 @@
     const source = window.getEnabledReplyPool?.() || [];
     return [...new Set(source.map(x => x.slice(0, 1000)).filter(Boolean))].slice(0, 500);
   }
+  function enabledPartnerStickers() {
+    let disabled = new Set();
+    try {
+      const saved = localStorage.getItem('disabledStickerItems');
+      if (saved) disabled = new Set(JSON.parse(saved));
+    } catch (_) {}
+    const source = typeof stickerLibrary !== 'undefined' && Array.isArray(stickerLibrary) ? stickerLibrary : [];
+    return [...new Set(source.filter(item => item && !disabled.has(item)))];
+  }
+  function isSyncedPartnerSticker(item) {
+    return item?.kind === 'sticker' && String(item.object_path || '').startsWith(`${user?.id || ''}/chat-partner-`);
+  }
+  function isCommentStickerAsset(item) {
+    return item?.kind === 'sticker' && String(item.object_path || '').startsWith(`${user?.id || ''}/chat-self-`);
+  }
+  function isHiddenChatStickerAsset(item) {
+    return isSyncedPartnerSticker(item) || isCommentStickerAsset(item);
+  }
+  async function partnerStickerFile(source, index) {
+    const response = await fetch(source);
+    if (!response.ok) throw new Error(`读取聊天表情 ${index + 1} 失败`);
+    const blob = await response.blob();
+    if (!blob.size || blob.size > MAX_GIF_BYTES) throw new Error(`聊天表情 ${index + 1} 超过 8 MB`);
+    const mime = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(blob.type) ? blob.type : 'image/png';
+    const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }[mime];
+    const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+    const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+    return { blob, mime, objectPath: `${user.id}/chat-partner-${hash.slice(0, 32)}.${extension}` };
+  }
+  async function syncPartnerStickers() {
+    const existing = await checked(db.from('milk_moments_media').select('*')
+      .eq('user_id', user.id).eq('kind', 'sticker'));
+    const byPath = new Map(existing.map(item => [item.object_path, item]));
+    const activePaths = new Set();
+    const sources = enabledPartnerStickers();
+
+    for (const [index, source] of sources.entries()) {
+      try {
+        const file = await partnerStickerFile(source, index);
+        activePaths.add(file.objectPath);
+        let item = byPath.get(file.objectPath);
+        if (!item) {
+          const upload = await db.storage.from(bucket).upload(file.objectPath, file.blob, { contentType: file.mime, upsert: false });
+          if (upload.error && Number(upload.error.statusCode || upload.error.status) !== 409) throw upload.error;
+          item = await checked(db.from('milk_moments_media').select('*')
+            .eq('user_id', user.id).eq('object_path', file.objectPath).maybeSingle());
+          if (!item) {
+            item = await checked(db.from('milk_moments_media').insert({
+              user_id: user.id,
+              object_path: file.objectPath,
+              kind: 'sticker',
+              allow_auto: true,
+              display_name: `聊天表情 ${index + 1}`,
+              album_name: '聊天表情'
+            }).select().single());
+          }
+          byPath.set(file.objectPath, item);
+        } else if (!item.allow_auto) {
+          await checked(db.from('milk_moments_media').update({ allow_auto: true })
+            .eq('id', item.id).eq('user_id', user.id));
+          item.allow_auto = true;
+        }
+      } catch (error) {
+        console.warn('[moments] 聊天表情同步失败:', error);
+      }
+    }
+
+    const staleIds = existing.filter(item => item.allow_auto && !activePaths.has(item.object_path)).map(item => item.id);
+    if (staleIds.length) {
+      await checked(db.from('milk_moments_media').update({ allow_auto: false })
+        .eq('user_id', user.id).in('id', staleIds));
+    }
+    return activePaths.size;
+  }
   async function syncCards() {
     if (!db || !user) return 0;
     if (librarySyncPromise) return librarySyncPromise;
@@ -165,6 +239,7 @@
     } else if (JSON.stringify(config.cards) !== JSON.stringify(cards) || config.partner_name !== partnerName) {
       config = await checked(db.from('milk_moments_config').update(values).eq('user_id', user.id).select().single());
     }
+      await syncPartnerStickers();
       return cards.length;
     })();
     try { return await librarySyncPromise; }
@@ -174,7 +249,7 @@
     clearTimeout(librarySyncTimer);
     librarySyncTimer = setTimeout(async () => {
       try {
-        if (!window._milkAppReady || !Array.isArray(customReplies) || !customReplies.length) return;
+        if (!window._milkAppReady || !Array.isArray(customReplies)) return;
         if (!libraryReady) {
           db = window.MilkCloudSync?.getClient();
           user = await window.MilkCloudSync?.currentUser();
@@ -268,7 +343,7 @@
     empty.title = '不使用表情包';
     picker.append(empty);
 
-    media.filter(item => item.kind === 'sticker').slice(0, STICKER_PICKER_LIMIT).forEach(item => {
+    media.filter(item => item.kind === 'sticker' && !isHiddenChatStickerAsset(item)).slice(0, STICKER_PICKER_LIMIT).forEach(item => {
       const choice = button('', () => choose(choice, item.id));
       choice.className = 'moments-sticker-choice';
       choice.title = '私密图库表情';
@@ -461,7 +536,8 @@
     const upload = node('input'); upload.type = 'file'; upload.accept = 'image/*'; upload.multiple = true;
     const type = field('select'); type.append(new Option('照片', 'photo'), new Option('表情包', 'sticker'));
     const allow = node('input'); allow.type = 'checkbox'; allow.checked = true;
-    const albums = [...new Set(media.map(albumName))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    const galleryMedia = media.filter(item => !isHiddenChatStickerAsset(item));
+    const albums = [...new Set(galleryMedia.map(albumName))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
     const albumListId = 'moments-album-list';
     const albumList = node('datalist'); albumList.id = albumListId;
     albums.forEach(value => albumList.append(new Option(value, value)));
@@ -479,7 +555,7 @@
         const file = files[index];
         uploadButton.textContent = `正在上传 ${index + 1}/${files.length}`;
         try {
-          await uploadMediaFile(file, type.value, allow.checked, true, uploadAlbum.value);
+          await uploadMediaFile(file, type.value, type.value === 'photo' && allow.checked, true, uploadAlbum.value);
           success += 1;
         } catch (error) {
           failures.push(`${file.name || `第 ${index + 1} 张`}：${errorText(error)}`);
@@ -502,7 +578,15 @@
       uploadButton.textContent = count ? `上传 ${count} 张` : '批量上传';
     });
     const uploadBox = node('div', 'moments-card moments-gallery-upload');
-    const allowLabel = node('label', 'moments-check-label', '默认允许他使用'); allowLabel.prepend(allow);
+    const allowLabel = node('label', 'moments-check-label', '默认允许他发动态时使用'); allowLabel.prepend(allow);
+    type.addEventListener('change', () => {
+      allow.disabled = type.value === 'sticker';
+      if (allow.disabled) allow.checked = false;
+      else allow.checked = true;
+      allowLabel.lastChild.textContent = type.value === 'sticker'
+        ? ' 自动评论跟随聊天里的“他的表情包”库'
+        : ' 默认允许他发动态时使用';
+    });
     uploadBox.append(node('div', 'moments-person', '添加到小相册'), upload, row(type, uploadAlbum), allowLabel, uploadButton, albumList);
     root.append(uploadBox);
 
@@ -523,7 +607,8 @@
     sort.addEventListener('change', rerenderGallery);
     root.append(row(filter, sort));
 
-    let shown = media.filter(item => galleryFilter === 'all' || albumName(item) === galleryFilter);
+    // 评论附件继续保存在私密存储里，保证旧评论可见，但不混入发帖相册。
+    let shown = galleryMedia.filter(item => galleryFilter === 'all' || albumName(item) === galleryFilter);
     shown.sort((a, b) => {
       if (gallerySort === 'oldest') return new Date(a.created_at) - new Date(b.created_at);
       if (gallerySort === 'name') return mediaName(a).localeCompare(mediaName(b), 'zh-CN');
@@ -560,12 +645,17 @@
           setTimeout(() => { if (saveName.isConnected) saveName.textContent = '保存'; }, 1200);
         } catch (e) { alertError(e); }
       });
-      const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.checked = item.allow_auto;
-      checkbox.addEventListener('change', async () => {
-        try { await checked(db.from('milk_moments_media').update({ allow_auto: checkbox.checked }).eq('id', item.id).eq('user_id', user.id)); item.allow_auto = checkbox.checked; }
-        catch (e) { checkbox.checked = !checkbox.checked; alertError(e); }
-      });
-      const label = node('label', '', `${item.kind === 'sticker' ? '表情包' : '照片'} · 允许他使用`); label.prepend(checkbox);
+      let label;
+      if (item.kind === 'sticker') {
+        label = node('label', '', '表情包 · 自动评论使用聊天里的“他的表情包”库');
+      } else {
+        const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.checked = item.allow_auto;
+        checkbox.addEventListener('change', async () => {
+          try { await checked(db.from('milk_moments_media').update({ allow_auto: checkbox.checked }).eq('id', item.id).eq('user_id', user.id)); item.allow_auto = checkbox.checked; }
+          catch (e) { checkbox.checked = !checkbox.checked; alertError(e); }
+        });
+        label = node('label', '', '照片 · 允许他发动态时使用'); label.prepend(checkbox);
+      }
       details.append(name, itemAlbum, row(saveName, button('删除', async () => {
         if (!window.confirm('删除这张私密图片？动态中的图片也将不再显示。')) return;
         try {
@@ -591,7 +681,7 @@
       }
       await refresh();
       // 新设备没有本地字卡时保留云端池，不会因为打开页面而清空它。
-      if (myCards().length || !config || (typeof customReplies !== 'undefined' && customReplies.length)) await syncCards();
+      if (myCards().length || enabledPartnerStickers().length || !config || (typeof customReplies !== 'undefined' && customReplies.length)) await syncCards();
       libraryReady = true;
       renderShell();
     } catch (e) { body().replaceChildren(note('打开失败：' + errorText(e))); }
