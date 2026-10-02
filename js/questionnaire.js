@@ -267,8 +267,17 @@
     const answerByQuestion = new Map((record.answers || []).map(answer => [answer.question_id, answer]));
     const questions = record.questions.map((question, index) => {
       const answer = answerByQuestion.get(question.id);
+      const selectedIndex = Number.isInteger(answer?.option_index) ? answer.option_index : -1;
+      const options = (question.options || []).map((option, optionIndex) => {
+        const selected = record.status === 'completed' && optionIndex === selectedIndex;
+        return `<div class="questionnaire-archive-option${selected ? ' selected' : ''}">
+          <span class="questionnaire-option-letter">${String.fromCharCode(65 + optionIndex)}</span>
+          <span>${escapeHtml(option)}</span>
+          ${selected ? `<strong>${escapeHtml(partnerName())}选择</strong>` : ''}
+        </div>`;
+      }).join('');
       return `<div class="questionnaire-answer-item"><p>${index + 1}. ${escapeHtml(question.text)}</p>
-        ${record.status === 'completed' ? `<strong>${escapeHtml(answer?.text || '—')}</strong>` : ''}</div>`;
+        <div class="questionnaire-archive-options">${options}</div></div>`;
     }).join('');
     const status = record.status === 'completed'
       ? `<span class="questionnaire-done">已填写</span>`

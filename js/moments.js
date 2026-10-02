@@ -162,15 +162,6 @@
     const source = typeof stickerLibrary !== 'undefined' && Array.isArray(stickerLibrary) ? stickerLibrary : [];
     return [...new Set(source.filter(item => item && !disabled.has(item)))];
   }
-  function isSyncedPartnerSticker(item) {
-    return item?.kind === 'sticker' && String(item.object_path || '').startsWith(`${user?.id || ''}/chat-partner-`);
-  }
-  function isCommentStickerAsset(item) {
-    return item?.kind === 'sticker' && String(item.object_path || '').startsWith(`${user?.id || ''}/chat-self-`);
-  }
-  function isHiddenChatStickerAsset(item) {
-    return isSyncedPartnerSticker(item) || isCommentStickerAsset(item);
-  }
   async function partnerStickerFile(source, index) {
     const response = await fetch(source);
     if (!response.ok) throw new Error(`读取聊天表情 ${index + 1} 失败`);
@@ -342,17 +333,6 @@
     empty.className = 'moments-sticker-choice selected moments-sticker-none';
     empty.title = '不使用表情包';
     picker.append(empty);
-
-    media.filter(item => item.kind === 'sticker' && !isHiddenChatStickerAsset(item)).slice(0, STICKER_PICKER_LIMIT).forEach(item => {
-      const choice = button('', () => choose(choice, item.id));
-      choice.className = 'moments-sticker-choice';
-      choice.title = '私密图库表情';
-      imageFor(item.id).then(url => {
-        if (!url || !choice.isConnected) return;
-        const img = node('img'); img.src = url; img.alt = '表情包'; choice.append(img);
-      }).catch(() => choice.remove());
-      picker.append(choice);
-    });
 
     const chatStickers = typeof myStickerLibrary !== 'undefined' && Array.isArray(myStickerLibrary) ? myStickerLibrary : [];
     chatStickers.slice(0, STICKER_PICKER_LIMIT).forEach((source, index) => {
@@ -534,9 +514,11 @@
   }
   function renderGallery(root) {
     const upload = node('input'); upload.type = 'file'; upload.accept = 'image/*'; upload.multiple = true;
-    const type = field('select'); type.append(new Option('照片', 'photo'), new Option('表情包', 'sticker'));
+    const type = field('select'); type.append(new Option('照片', 'photo'));
     const allow = node('input'); allow.type = 'checkbox'; allow.checked = true;
-    const galleryMedia = media.filter(item => !isHiddenChatStickerAsset(item));
+    // 发帖相册只管理照片。所有表情（包括旧图库表情）都作为隐藏评论附件保留，
+    // 避免用户为整理相册而误删已经被评论引用的底层文件。
+    const galleryMedia = media.filter(item => item.kind === 'photo');
     const albums = [...new Set(galleryMedia.map(albumName))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
     const albumListId = 'moments-album-list';
     const albumList = node('datalist'); albumList.id = albumListId;
