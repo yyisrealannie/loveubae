@@ -1,4 +1,4 @@
--- 到期时间落在安静时段时，不再统一等到 10:00 发布；改为随机安排到下一段 10:00–22:00。
+-- 动态到达预定随机时间后即可全天发布，不再受 10:00–22:00 窗口限制。
 create or replace function public.milk_moments_tick()
 returns void language plpgsql security definer set search_path = '' as $$
 declare
@@ -62,18 +62,6 @@ begin
     end loop;
 
     if cfg.next_post_at > tick_now then continue; end if;
-    if extract(hour from local_time) < 10 then
-      update public.milk_moments_config
-        set next_post_at = ((date_trunc('day', local_time) + interval '10 hours' + random() * interval '12 hours') at time zone 'Europe/London')
-        where user_id = cfg.user_id and next_post_at <= tick_now;
-      continue;
-    elsif extract(hour from local_time) >= 22 then
-      update public.milk_moments_config
-        set next_post_at = ((date_trunc('day', local_time) + interval '1 day 10 hours' + random() * interval '12 hours') at time zone 'Europe/London')
-        where user_id = cfg.user_id and next_post_at <= tick_now;
-      continue;
-    end if;
-
     used := case when cfg.week_start = this_monday then cfg.week_count else 0 end;
     if used >= 2 or (cfg.last_post_at is not null and cfg.last_post_at > tick_now - interval '48 hours') then
       update public.milk_moments_config set week_start = this_monday, week_count = used,

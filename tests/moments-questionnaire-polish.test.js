@@ -13,9 +13,9 @@ assert.match(questionnaire, /questionnaire-archive-options/,
   '问卷存档应展示完整选项');
 assert.match(questionnaire, /optionIndex === selectedIndex/,
   '问卷存档应标记被选择的选项');
-assert.match(migration, /date_trunc\('day', local_time\).*random\(\) \* interval '12 hours'/,
-  '安静时段到期的动态应随机安排到白天窗口');
-assert.doesNotMatch(migration, /extract\(hour from local_time\) < 10 or/,
-  '动态不应继续统一卡在 10:00 发布');
+assert.match(migration, /if cfg\.next_post_at > tick_now then continue; end if;/,
+  '动态应按已经生成的随机时间判断是否到期');
+assert.doesNotMatch(migration, /extract\(hour from local_time\)/,
+  '动态发布时间不应再受固定小时窗口限制');
 
 console.log('moments gallery, schedule, and questionnaire archive tests passed');
