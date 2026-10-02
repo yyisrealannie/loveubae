@@ -165,6 +165,12 @@
   function isSyncedPartnerSticker(item) {
     return item?.kind === 'sticker' && String(item.object_path || '').startsWith(`${user?.id || ''}/chat-partner-`);
   }
+  function isCommentStickerAsset(item) {
+    return item?.kind === 'sticker' && String(item.object_path || '').startsWith(`${user?.id || ''}/chat-self-`);
+  }
+  function isHiddenChatStickerAsset(item) {
+    return isSyncedPartnerSticker(item) || isCommentStickerAsset(item);
+  }
   async function partnerStickerFile(source, index) {
     const response = await fetch(source);
     if (!response.ok) throw new Error(`读取聊天表情 ${index + 1} 失败`);
@@ -337,7 +343,7 @@
     empty.title = '不使用表情包';
     picker.append(empty);
 
-    media.filter(item => item.kind === 'sticker').slice(0, STICKER_PICKER_LIMIT).forEach(item => {
+    media.filter(item => item.kind === 'sticker' && !isHiddenChatStickerAsset(item)).slice(0, STICKER_PICKER_LIMIT).forEach(item => {
       const choice = button('', () => choose(choice, item.id));
       choice.className = 'moments-sticker-choice';
       choice.title = '私密图库表情';
@@ -530,7 +536,7 @@
     const upload = node('input'); upload.type = 'file'; upload.accept = 'image/*'; upload.multiple = true;
     const type = field('select'); type.append(new Option('照片', 'photo'), new Option('表情包', 'sticker'));
     const allow = node('input'); allow.type = 'checkbox'; allow.checked = true;
-    const galleryMedia = media.filter(item => !isSyncedPartnerSticker(item));
+    const galleryMedia = media.filter(item => !isHiddenChatStickerAsset(item));
     const albums = [...new Set(galleryMedia.map(albumName))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
     const albumListId = 'moments-album-list';
     const albumList = node('datalist'); albumList.id = albumListId;
@@ -601,7 +607,7 @@
     sort.addEventListener('change', rerenderGallery);
     root.append(row(filter, sort));
 
-    // 聊天里的“他的表情包”只在后台复用，不在私密图库再展示一份重复副本。
+    // 评论附件继续保存在私密存储里，保证旧评论可见，但不混入发帖相册。
     let shown = galleryMedia.filter(item => galleryFilter === 'all' || albumName(item) === galleryFilter);
     shown.sort((a, b) => {
       if (gallerySort === 'oldest') return new Date(a.created_at) - new Date(b.created_at);
