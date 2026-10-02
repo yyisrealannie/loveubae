@@ -112,6 +112,7 @@ Deno.serve(async (request) => {
     let sent = 0
     let generated = 0
     let removed = 0
+    let cleaned = 0
     type SubscriptionRow = NonNullable<typeof activeSubscriptions>[number]
     const subscriptionsByUser = new Map<string, SubscriptionRow[]>()
     for (const row of activeSubscriptions || []) {
@@ -170,7 +171,19 @@ Deno.serve(async (request) => {
       }
     }
 
-    return new Response(JSON.stringify({ checked, generated, sent, removed }), { headers: corsHeaders })
+    // milk_push_messages 只是锁屏消息进入聊天记录前的可靠中转站。
+    // 已经导入聊天超过 30 天的中转副本可安全清理；从未导入的消息永不在这里过期。
+    if (now.getUTCHours() === 3 && now.getUTCMinutes() === 7) {
+      const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60_000).toISOString()
+      const { count, error: cleanupError } = await admin.from('milk_push_messages')
+        .delete({ count: 'exact' })
+        .not('imported_at', 'is', null)
+        .lt('imported_at', cutoff)
+      if (cleanupError) console.error('Push staging cleanup failed', cleanupError)
+      else cleaned = count || 0
+    }
+
+    return new Response(JSON.stringify({ checked, generated, sent, removed, cleaned }), { headers: corsHeaders })
   } catch (error) {
     console.error(error)
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
