@@ -12,7 +12,8 @@ assert.match(migration, /milk_moments_sticker_auto_source/, '应限制自动评�
 assert.match(moments, /chat-partner-/, '聊天里的他的表情包应同步为 Moments 后台来源');
 assert.match(moments, /disabledStickerItems/, '被屏蔽的聊天表情不应同步');
 assert.match(moments, /chat-self-/, '自己的评论表情应保存为独立附件');
-assert.match(moments, /!isHiddenChatStickerAsset\(item\)/, '双方聊天表情附件都不应重复显示在发帖相册');
+assert.match(moments, /galleryMedia = media\.filter\(item => item\.kind === 'photo'\)/,
+  '所有表情附件都不应重复显示在发帖相册');
 assert.match(push, /30 \* 24 \* 60 \* 60_000/, '已导入的推送中转记录应保留 30 天后再清理');
 assert.match(push, /not\('imported_at', 'is', null\)/, '清理不得删除尚未导入聊天的消息');
 
