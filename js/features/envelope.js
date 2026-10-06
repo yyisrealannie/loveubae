@@ -2,6 +2,10 @@ let envelopeData = { outbox: [], inbox: [] };
 let currentEnvTab = 'outbox';
 let editingEnvId = null; 
 let editingEnvSection = null; 
+let replyingToEnvelopeId = null;
+
+const PROACTIVE_ENVELOPE_WEEKLY_LIMIT = 4;
+const PROACTIVE_ENVELOPE_CHANCE = 0.12;
 
 async function loadEnvelopeData() {
     const saved = await localforage.getItem(getStorageKey('envelopeData'));
@@ -161,7 +165,9 @@ window.maybeTriggerProactiveEnvelope = function(sourcePool) {
             };
         }
     } catch (e) {}
-    if (weekState.count >= 2 || now - weekState.lastAt < cooldownMs || Math.random() >= 0.08) return false;
+    if (weekState.count >= PROACTIVE_ENVELOPE_WEEKLY_LIMIT ||
+        now - weekState.lastAt < cooldownMs ||
+        Math.random() >= PROACTIVE_ENVELOPE_CHANCE) return false;
 
     const enabledNow = new Set(window.getEnabledReplyPool());
     const pool = Array.from(new Set((sourcePool || window.getEnabledReplyPool())
@@ -286,6 +292,9 @@ function renderInboxList() {
         const preview = letter.content.length > 50 ? letter.content.substring(0, 50) + '…' : letter.content;
         const isNew = letter.isNew;
         const origPreview = letter.originalContent ? (letter.originalContent.length > 32 ? letter.originalContent.substring(0, 32) + '…' : letter.originalContent) : '';
+        const replyStatus = letter.proactive && letter.userRepliedAt
+            ? `<div class="env-letter-status"><span class="env-replied-label">已回信</span></div>`
+            : '';
         return `
         <div class="env-letter-item reply ${isNew ? 'env-letter-new' : ''}" onclick="viewEnvLetter('inbox','${letter.id}')">
             <div class="env-letter-header">
@@ -301,6 +310,7 @@ function renderInboxList() {
             ${origPreview ? `<div style="padding:6px 12px 0;display:flex;align-items:flex-start;gap:6px;"><div style="width:2px;border-radius:2px;background:rgba(var(--accent-color-rgb),0.4);flex-shrink:0;align-self:stretch;min-height:14px;margin-top:1px;"></div><div style="font-size:11px;color:var(--text-secondary);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:calc(100% - 14px);opacity:0.75;">原信: ${origPreview}</div></div>` : ''}
             <div class="env-letter-body">
                 <div class="env-letter-preview">${preview}</div>
+                ${replyStatus}
             </div>
             <button class="env-letter-delete-btn" onclick="deleteEnvLetter(event,'inbox','${letter.id}')">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -321,9 +331,11 @@ window.viewEnvLetter = function(section, id) {
     editingEnvId = id;
     editingEnvSection = section;
 
-    document.getElementById('env-view-title').textContent = section === 'outbox' ? '寄出的信' : '收到的回信';
+    document.getElementById('env-view-title').textContent = section === 'outbox'
+        ? (letter.replyToId ? '给他的回信' : '寄出的信')
+        : (letter.proactive ? '收到的拼贴信' : '收到的回信');
 
-    const dateObj = letter.timestamp ? new Date(letter.timestamp) : new Date();
+    const dateObj = new Date(letter.timestamp || letter.sentTime || letter.receivedTime || Date.now());
     const y = dateObj.getFullYear();
     const mo = String(dateObj.getMonth()+1).padStart(2,'0');
     const d = String(dateObj.getDate()).padStart(2,'0');
@@ -370,10 +382,12 @@ window.viewEnvLetter = function(section, id) {
     document.getElementById('env-view-save-btn').style.display = 'none';
     const origCtx = document.getElementById('env-view-original-ctx');
     const origText = document.getElementById('env-view-original-text');
+    const origLabel = document.getElementById('env-view-original-label');
     const origExpand = document.getElementById('env-view-original-expand');
     if (origCtx && origText) {
-        if (section === 'inbox' && letter.originalContent) {
+        if (letter.originalContent) {
             origText.textContent = letter.originalContent;
+            if (origLabel) origLabel.textContent = section === 'outbox' && letter.replyToId ? '对方的拼贴信' : '你的原信';
             origText.style.maxHeight = '80px';
             origCtx.style.display = 'block';
             if (origExpand) {
@@ -383,6 +397,13 @@ window.viewEnvLetter = function(section, id) {
         } else {
             origCtx.style.display = 'none';
         }
+    }
+    const replyBtn = document.getElementById('env-view-reply-btn');
+    if (replyBtn) {
+        const canReply = section === 'inbox' && letter.proactive;
+        replyBtn.style.display = canReply ? 'inline-flex' : 'none';
+        replyBtn.disabled = !!letter.userRepliedAt;
+        replyBtn.textContent = letter.userRepliedAt ? '已回信' : '回信';
     }
     showModal(document.getElementById('envelope-view-modal'));
 };
@@ -439,16 +460,43 @@ window.deleteEnvLetter = function(event, section, id) {
 };
 
 window.openNewEnvelopeForm = function() {
+    replyingToEnvelopeId = null;
     document.getElementById('env-outbox-section').style.display = 'none';
     document.getElementById('env-inbox-section').style.display = 'none';
     document.getElementById('env-main-close-btn').style.display = 'none';
     document.getElementById('env-compose-title').textContent = '写一封信';
     document.getElementById('envelope-input').value = '';
     document.getElementById('env-send-to-chat').checked = false;
+    const replyContext = document.getElementById('env-compose-reply-context');
+    if (replyContext) replyContext.style.display = 'none';
     document.getElementById('env-compose-form').style.display = 'block';
 };
 
+window.openEnvelopeReplyForm = function() {
+    if (editingEnvSection !== 'inbox') return;
+    const letter = envelopeData.inbox.find(item => item.id === editingEnvId && item.proactive);
+    if (!letter || letter.userRepliedAt) return;
+    replyingToEnvelopeId = letter.id;
+    hideModal(document.getElementById('envelope-view-modal'));
+    document.getElementById('env-outbox-section').style.display = 'none';
+    document.getElementById('env-inbox-section').style.display = 'none';
+    document.getElementById('env-main-close-btn').style.display = 'none';
+    const partnerName = (typeof settings !== 'undefined' && settings.partnerName) || '他';
+    document.getElementById('env-compose-title').textContent = `回复${partnerName}的拼贴信`;
+    document.getElementById('envelope-input').value = '';
+    document.getElementById('env-send-to-chat').checked = false;
+    const replyContext = document.getElementById('env-compose-reply-context');
+    const replyPreview = document.getElementById('env-compose-reply-preview');
+    if (replyContext && replyPreview) {
+        replyPreview.textContent = letter.content;
+        replyContext.style.display = 'block';
+    }
+    document.getElementById('env-compose-form').style.display = 'block';
+    setTimeout(() => document.getElementById('envelope-input')?.focus(), 80);
+};
+
 window.cancelEnvelopeCompose = function() {
+    replyingToEnvelopeId = null;
     document.getElementById('env-compose-form').style.display = 'none';
     document.getElementById('env-main-close-btn').style.display = 'flex';
     if (currentEnvTab === 'outbox') {
@@ -462,6 +510,13 @@ function handleSendEnvelope() {
     const text = document.getElementById('envelope-input').value.trim();
     if (!text) { showNotification('信件内容不能为空', 'warning'); return; }
 
+    const sourceLetter = replyingToEnvelopeId
+        ? envelopeData.inbox.find(letter => letter.id === replyingToEnvelopeId && letter.proactive)
+        : null;
+    if (replyingToEnvelopeId && !sourceLetter) {
+        showNotification('这封拼贴信已不存在，请返回后重试', 'warning');
+        return;
+    }
     const sendToChat = document.getElementById('env-send-to-chat').checked;
     if (sendToChat) {
         addMessage({ id: Date.now(), sender: 'user', text: `【寄出的信】\n${text}`, timestamp: new Date(), status: 'sent', type: 'normal' });
@@ -471,13 +526,21 @@ function handleSendEnvelope() {
     const randomHours = Math.random() * (maxHours - minHours) + minHours;
     const replyTime = Date.now() + randomHours * 60 * 60 * 1000;
     const newId = 'env_' + Date.now() + '_' + Math.random().toString(36).substr(2,4);
-    envelopeData.outbox.push({
+    const outgoing = {
         id: newId, content: text,
         sentTime: Date.now(), replyTime,
         status: 'pending'
-    });
+    };
+    if (sourceLetter) {
+        outgoing.replyToId = sourceLetter.id;
+        outgoing.originalContent = sourceLetter.content;
+        sourceLetter.userRepliedAt = Date.now();
+        sourceLetter.userReplyId = newId;
+    }
+    envelopeData.outbox.push(outgoing);
     saveEnvelopeData();
 
+    replyingToEnvelopeId = null;
     cancelEnvelopeCompose();
     switchEnvTab('outbox');
     showNotification(`信件已寄出，预计 ${Math.floor(randomHours)} 小时后收到回信 ✉️`, 'success');

@@ -1,12 +1,12 @@
-const CACHE_NAME = 'loveubae-v45';
+const CACHE_NAME = 'loveubae-v46';
 const LOCAL_ASSETS = [
-  './', './index.html', './manifest.webmanifest', './css/styles.css', './css/questionnaire.css?v=45',
+  './', './index.html', './manifest.webmanifest', './css/styles.css', './css/envelope.css?v=46', './css/questionnaire.css?v=46',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
   './js/config.js', './js/utils.js', './js/backup-engine.js', './js/state.js',
   './js/core.js?v=41', './js/features/mood.js', './js/features/envelope.js',
   './js/features/reply-library.js?v=39', './js/features/theme-editor.js',
   './js/features/group-chat.js', './js/features/call.js', './js/games.js',
-  './js/features.js', './js/data.js', './js/cloud-sync.js?v=40', './js/safe-sync.js?v=41', './js/questionnaire.js?v=45', './js/moments.js?v=45', './js/wallet.js?v=39', './js/sleep-push.js?v=43', './js/onboarding.js',
+  './js/features.js', './js/data.js', './js/cloud-sync.js?v=40', './js/safe-sync.js?v=41', './js/questionnaire.js?v=46', './js/moments.js?v=45', './js/wallet.js?v=39', './js/sleep-push.js?v=43', './js/onboarding.js',
   './js/listeners.js', './js/app.js'
 ];
 

@@ -7,6 +7,7 @@
   let db = null, user = null, screen = null, records = [], tab = 'create';
   let loadedStore = '', refreshing = null, dueTimer = null;
   let draft = freshDraft();
+  let createNotice = null;
 
   const byId = id => document.getElementById(id);
   const nowIso = () => new Date().toISOString();
@@ -85,8 +86,13 @@
     }
   }
   async function saveLocal() {
-    try { await localforage.setItem(localKey(), records); }
-    catch (error) { console.warn('[questionnaire] 本机存档保存失败:', error); }
+    try {
+      await localforage.setItem(localKey(), records);
+      return true;
+    } catch (error) {
+      console.warn('[questionnaire] 本机存档保存失败:', error);
+      return false;
+    }
   }
   async function connect() {
     db = window.MilkCloudSync?.getClient?.() || null;
@@ -227,6 +233,7 @@
       tab = button.dataset.tab; renderCurrent();
     });
     screen.addEventListener('input', event => {
+      clearCreateNotice();
       if (event.target.id === 'questionnaire-title') draft.title = event.target.value;
       if (event.target.matches('[data-question-text]')) draft.questions[Number(event.target.dataset.q)].text = event.target.value;
       if (event.target.matches('[data-option-text]')) draft.questions[Number(event.target.dataset.q)].options[Number(event.target.dataset.o)] = event.target.value;
@@ -236,6 +243,28 @@
   }
   function renderTabs() {
     screen.querySelectorAll('[data-tab]').forEach(button => button.classList.toggle('active', button.dataset.tab === tab));
+  }
+  function clearCreateNotice() {
+    createNotice = null;
+    const notice = byId('questionnaire-create-notice');
+    if (notice) {
+      notice.hidden = true;
+      notice.textContent = '';
+      notice.className = 'questionnaire-create-notice';
+    }
+  }
+  function showCreateNotice(message, type = 'error') {
+    createNotice = { message: String(message || '问卷暂时无法发送'), type };
+    tab = 'create';
+    if (!screen) return;
+    renderTabs();
+    if (!byId('questionnaire-create-notice')) renderCreate();
+    const notice = byId('questionnaire-create-notice');
+    if (!notice) return;
+    notice.textContent = createNotice.message;
+    notice.className = `questionnaire-create-notice ${type}`;
+    notice.hidden = false;
+    notice.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
   function questionHtml(question, index) {
     const options = question.options.map((option, optionIndex) => `<div class="questionnaire-option-row">
@@ -253,6 +282,7 @@
   function renderCreate() {
     const content = byId('questionnaire-content');
     content.innerHTML = `<div class="questionnaire-form">
+      <div id="questionnaire-create-notice" class="questionnaire-create-notice${createNotice ? ` ${escapeHtml(createNotice.type)}` : ''}" role="alert" aria-live="assertive" ${createNotice ? '' : 'hidden'}>${createNotice ? escapeHtml(createNotice.message) : ''}</div>
       <label class="questionnaire-title-label">问卷标题<input id="questionnaire-title" maxlength="80" value="${escapeHtml(draft.title)}" placeholder="例如：我们的睡前小问卷"></label>
       <div class="questionnaire-count"><span>${draft.questions.length} / ${MAX_QUESTIONS} 题</span><span>每题 2–${MAX_OPTIONS} 个选项</span></div>
       <div id="questionnaire-questions">${draft.questions.map(questionHtml).join('')}</div>
@@ -299,6 +329,7 @@
     renderTabs(); tab === 'archive' ? renderArchive() : renderCreate();
   }
   async function sendQuestionnaire(button) {
+    clearCreateNotice();
     const valid = validateDraft(draft);
     const sentAt = new Date();
     const delay = responseDelayMinutes(valid.questions.length);
@@ -310,15 +341,26 @@
       created_at: sentAt.toISOString(), updated_at: sentAt.toISOString(), _cloud: false, _dirty: true
     };
     button.disabled = true;
+    let savedLocally = false;
     try {
-      records.push(record); await saveLocal();
+      records.push(record);
+      savedLocally = await saveLocal();
       if (await connect()) await syncOne(record);
+      if (!savedLocally && record._dirty) throw new Error('本机与云端都未能保存问卷');
       await saveLocal(); draft = freshDraft(); tab = 'archive'; renderCurrent(); scheduleDueCheck();
       notify(`已经交给${partnerName()}，会在 12 小时内填好`, 'success');
     } catch (error) {
       console.warn('[questionnaire] 云端保存稍后重试:', error);
-      await saveLocal(); draft = freshDraft(); tab = 'archive'; renderCurrent(); scheduleDueCheck();
-      notify('问卷已保存在本机，联网后会继续同步', 'warning');
+      savedLocally = savedLocally || await saveLocal();
+      if (!savedLocally) {
+        records = records.filter(item => item.id !== record.id);
+        throw new Error('问卷未能保存或发送，请检查浏览器存储与网络后重试');
+      }
+      draft = freshDraft();
+      createNotice = { message: '问卷已保存在本机，联网后会继续同步', type: 'warning' };
+      tab = 'create';
+      renderCurrent();
+      scheduleDueCheck();
     } finally { button.disabled = false; }
   }
   async function handleAction(event) {
@@ -329,7 +371,8 @@
     if (button.dataset.action === 'add-option' && draft.questions[q]?.options.length < MAX_OPTIONS) draft.questions[q].options.push('');
     if (button.dataset.action === 'remove-option' && draft.questions[q]?.options.length > 2) draft.questions[q].options.splice(o, 1);
     if (button.dataset.action === 'send') {
-      try { await sendQuestionnaire(button); } catch (error) { notify(error.message || String(error), 'error'); }
+      try { await sendQuestionnaire(button); }
+      catch (error) { showCreateNotice(error.message || String(error), 'error'); }
       return;
     }
     if (button.dataset.action === 'refresh') {
