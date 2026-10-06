@@ -1,0 +1,35 @@
+.env-replied-label {
+  font-size: 9px;
+  color: #6BCB77;
+  border: 1px solid #6BCB77;
+  border-radius: 4px;
+  padding: 1px 5px;
+  letter-spacing: 0.5px;
+}
+
+.env-letter-item.reply .env-letter-status::before {
+  content: none;
+  display: none;
+}
+
+.env-compose-reply-context {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border-left: 3px solid var(--accent-color);
+  border-radius: 9px;
+  background: rgba(var(--accent-color-rgb), 0.08);
+  color: var(--accent-color);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.env-compose-reply-context p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

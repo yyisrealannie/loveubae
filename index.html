@@ -24,7 +24,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
 
     <link rel="stylesheet" href="css/styles.css">
-    <link rel="stylesheet" href="css/questionnaire.css?v=45">
+    <link rel="stylesheet" href="css/envelope.css?v=46">
+    <link rel="stylesheet" href="css/questionnaire.css?v=46">
 
     <style id="css-live-preview-style"></style>
 </head>
@@ -450,7 +451,7 @@
                 </button>
             </div>
             <div style="font-size:11px;line-height:1.5;color:var(--text-secondary);padding:8px 12px 2px;text-align:center;opacity:.82;">
-                对方每周最多会随机主动寄来 2 封拼贴信
+                对方每周最多会随机主动寄来 4 封拼贴信
             </div>
 
             <div id="env-outbox-section">
@@ -462,6 +463,10 @@
             </div>
 
             <div id="env-compose-form" style="display:none;">
+                <div id="env-compose-reply-context" class="env-compose-reply-context" style="display:none;">
+                    <div>正在回复他的拼贴信</div>
+                    <p id="env-compose-reply-preview"></p>
+                </div>
                 <div class="env-compose-paper">
                     <div class="env-compose-heading">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -518,7 +523,7 @@
         <div style="padding:0;overflow-y:auto;flex:1;min-height:0;">
             <div id="env-view-content" style="display:none;">
                 <div id="env-view-original-ctx" style="display:none;margin:14px 16px 0;background:rgba(var(--accent-color-rgb),0.06);border:1px solid rgba(var(--accent-color-rgb),0.18);border-radius:10px;padding:10px 14px;border-left:3px solid rgba(var(--accent-color-rgb),0.5);">
-                    <div style="font-size:10px;color:var(--accent-color);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;opacity:0.8;display:flex;align-items:center;gap:5px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>你的原信</div>
+                    <div style="font-size:10px;color:var(--accent-color);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;opacity:0.8;display:flex;align-items:center;gap:5px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg><span id="env-view-original-label">你的原信</span></div>
                     <div id="env-view-original-text" style="font-size:12.5px;color:var(--text-secondary);line-height:1.7;font-style:italic;white-space:pre-wrap;word-break:break-word;max-height:80px;overflow:hidden;position:relative;"></div>
                     <div id="env-view-original-expand" style="font-size:11px;color:var(--accent-color);margin-top:5px;cursor:pointer;display:none;" onclick="(function(){var t=document.getElementById('env-view-original-text');t.style.maxHeight=t.style.maxHeight==='none'?'80px':'none';document.getElementById('env-view-original-expand').textContent=t.style.maxHeight==='none'?'收起':'展开查看全文';})()">展开查看全文</div>
                 </div>
@@ -549,6 +554,7 @@
 
         <div class="modal-buttons" style="margin:0;padding:12px 18px 16px;border-top:1px solid var(--border-color);flex-shrink:0;">
             <button class="modal-btn modal-btn-secondary" id="close-env-view" onclick="closeEnvViewModal()">关闭</button>
+            <button class="modal-btn modal-btn-primary" id="env-view-reply-btn" onclick="openEnvelopeReplyForm()" style="display:none;">回信</button>
             <button class="modal-btn modal-btn-secondary" id="env-view-edit-btn" onclick="toggleEnvEdit()">编辑</button>
             <button class="modal-btn modal-btn-primary" id="env-view-save-btn" onclick="saveEnvEdit()" style="display:none;">保存</button>
         </div>
@@ -2251,7 +2257,7 @@
     <script src="js/data.js"></script>
     <script src="js/cloud-sync.js?v=40"></script>
     <script src="js/safe-sync.js?v=41"></script>
-    <script src="js/questionnaire.js?v=45"></script>
+    <script src="js/questionnaire.js?v=46"></script>
     <script src="js/moments.js?v=45"></script>
     <script src="js/wallet.js?v=39"></script>
     <script src="js/sleep-push.js?v=43"></script>

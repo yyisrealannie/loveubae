@@ -74,6 +74,22 @@
 }
 .questionnaire-form,
 .questionnaire-archive { max-width: 720px; margin: 0 auto; }
+.questionnaire-create-notice {
+  margin: 0 0 12px;
+  padding: 11px 13px;
+  border: 1px solid rgba(190, 72, 72, .35);
+  border-radius: 12px;
+  background: rgba(190, 72, 72, .10);
+  color: #b44848;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.questionnaire-create-notice.warning {
+  border-color: rgba(var(--accent-color-rgb), .35);
+  background: rgba(var(--accent-color-rgb), .10);
+  color: var(--accent-color);
+}
+.questionnaire-create-notice[hidden] { display: none; }
 .questionnaire-title-label {
   display: grid;
   gap: 8px;
