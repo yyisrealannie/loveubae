@@ -93,6 +93,91 @@ async function mediaFor(m,key){
  if(result.error&&!/already exists|duplicate/i.test(result.error.message||''))throw result.error;
  return path
 }
+function imageDataInfo(value){
+ if(typeof value!=='string')return null;
+ const match=/^data:(image\/(?:jpeg|png|webp|gif));base64,/i.exec(value);
+ if(!match)return null;
+ const mime=match[1].toLowerCase();
+ return {mime,ext:{'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif'}[mime]}
+}
+async function hashText(value){
+ const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));
+ return [...new Uint8Array(bytes)].map(v=>v.toString(16).padStart(2,'0')).join('')
+}
+function currentAvatar(type){
+ try{
+  const holder=type==='partner'?DOMElements.partner.avatar:DOMElements.me.avatar;
+  const src=holder?.querySelector('img')?.src||'';
+  return src&&src!==window.location.href&&!src.startsWith('blob:')?src:''
+ }catch(_){return''}
+}
+function profileMediaSources(){
+ const partnerAvatar=currentAvatar('partner'),myAvatar=currentAvatar('my');
+ return {
+  partnerAvatar,myAvatar,
+  partnerAvatarFrame:typeof settings!=='undefined'?settings.partnerAvatarFrame?.src||'':'',
+  myAvatarFrame:typeof settings!=='undefined'?settings.myAvatarFrame?.src||'':'',
+  stickerLibrary:typeof stickerLibrary!=='undefined'&&Array.isArray(stickerLibrary)?stickerLibrary:[],
+  myStickerLibrary:typeof myStickerLibrary!=='undefined'&&Array.isArray(myStickerLibrary)?myStickerLibrary:[]
+ }
+}
+async function uploadProfileAsset(value,cache){
+ if(typeof value!=='string'||!value)return null;
+ if(!value.startsWith('data:'))return /^https?:\/\//i.test(value)?{url:value}:null;
+ const info=imageDataInfo(value);if(!info)throw new Error('头像或表情包含不支持的图片格式');
+ if(value.length>11*1024*1024)throw new Error('头像或表情包图片超过 8 MB 云端限制');
+ if(cache.has(value))return cache.get(value);
+ const promise=(async()=>{
+  const filename=await hashText(value),path=user.id+'/profile/'+filename+'.'+info.ext;
+  const blob=await(await fetch(value)).blob();
+  if(blob.size>8388608)throw new Error('头像或表情包图片超过 8 MB 云端限制');
+  const result=await client.storage.from(MEDIA).upload(path,blob,{contentType:info.mime,upsert:false});
+  if(result.error&&!/already exists|duplicate/i.test(result.error.message||''))throw result.error;
+  return {path,mime:info.mime}
+ })();
+ cache.set(value,promise);return promise
+}
+async function mapLimited(values,limit,task){
+ const output=new Array(values.length);let next=0;
+ async function worker(){for(;;){const index=next++;if(index>=values.length)return;output[index]=await task(values[index],index)}}
+ await Promise.all(Array.from({length:Math.min(limit,values.length)},worker));return output
+}
+async function uploadProfileMedia(sources){
+ const cache=new Map(),one=value=>uploadProfileAsset(value,cache);
+ const fixed=[sources.partnerAvatar,sources.myAvatar,sources.partnerAvatarFrame,sources.myAvatarFrame];
+ const all=fixed.concat(sources.stickerLibrary,sources.myStickerLibrary);
+ const refs=await mapLimited(all,3,one),stickerEnd=4+sources.stickerLibrary.length;
+ const [partnerAvatar,myAvatar,partnerAvatarFrame,myAvatarFrame]=refs;
+ const stickers=refs.slice(4,stickerEnd),myStickers=refs.slice(stickerEnd);
+ return {partnerAvatar,myAvatar,partnerAvatarFrame,myAvatarFrame,stickerLibrary:stickers,myStickerLibrary:myStickers}
+}
+async function blobToDataUrl(blob){
+ const bytes=new Uint8Array(await blob.arrayBuffer()),chunk=0x8000;let binary='';
+ for(let i=0;i<bytes.length;i+=chunk)binary+=String.fromCharCode(...bytes.subarray(i,Math.min(i+chunk,bytes.length)));
+ return 'data:'+(blob.type||'application/octet-stream')+';base64,'+btoa(binary)
+}
+async function downloadProfileAsset(ref,cache){
+ if(!ref)return '';
+ if(typeof ref==='string')return ref;
+ if(typeof ref.url==='string')return ref.url;
+ if(typeof ref.path!=='string'||!ref.path)return '';
+ if(cache.has(ref.path))return cache.get(ref.path);
+ const promise=(async()=>{
+  const blob=await retryRead(()=>client.storage.from(MEDIA).download(ref.path));
+  return blobToDataUrl(blob)
+ })();
+ cache.set(ref.path,promise);return promise
+}
+async function restoreProfileMedia(media){
+ if(!media||typeof media!=='object')return null;
+ const cache=new Map(),one=ref=>downloadProfileAsset(ref,cache);
+ const [partnerAvatar,myAvatar,partnerAvatarFrame,myAvatarFrame,stickers,myStickers]=await Promise.all([
+  one(media.partnerAvatar),one(media.myAvatar),one(media.partnerAvatarFrame),one(media.myAvatarFrame),
+  mapLimited(Array.isArray(media.stickerLibrary)?media.stickerLibrary:[],3,one),
+  mapLimited(Array.isArray(media.myStickerLibrary)?media.myStickerLibrary:[],3,one)
+ ]);
+ return {partnerAvatar,myAvatar,partnerAvatarFrame,myAvatarFrame,stickerLibrary:stickers.filter(Boolean),myStickerLibrary:myStickers.filter(Boolean)}
+}
 async function sendOne(key,m){
  if(known.has(key)){queue.delete(key);return}
  if(m.image!=null&&typeof m.image!=='string')throw new Error('这条消息含尚不支持的附件，本机原件保留，未标记已同步');
@@ -239,6 +324,7 @@ async function mergeRemote(options={}){
 const mergeOlder=()=>mergeRemote({mode:'older'});
 function profilePayload(){
  if(typeof customReplies==='undefined')return null;
+ const frameMeta=frame=>frame&&typeof frame==='object'?{size:frame.size,offsetX:frame.offsetX,offsetY:frame.offsetY}:null;
  const source={customReplies,customReplyGroups:window.customReplyGroups||[],
   disabledReplyItems:(()=>{try{return JSON.parse(localStorage.getItem('disabledReplyItems')||'[]')}catch(_){return[]}})(),
   disabledReplyItemsUpdatedAt:Number(localStorage.getItem('disabledReplyItemsUpdatedAt')||0),
@@ -246,43 +332,154 @@ function profilePayload(){
   customPokes:typeof customPokes==='undefined'?[]:customPokes,
   myPokes:typeof myPokes==='undefined'?[]:myPokes,
   customStatuses:typeof customStatuses==='undefined'?[]:customStatuses,
-  settings:typeof settings==='undefined'?{}:{partnerName:settings.partnerName,myName:settings.myName,replyEnabled:settings.replyEnabled}};
+  customPokeGroups:window.customPokeGroups||[],
+  customStatusGroups:window.customStatusGroups||[],
+  customMottos:typeof customMottos==='undefined'?[]:customMottos,
+  customIntros:typeof customIntros==='undefined'?[]:customIntros,
+  anniversaries:typeof anniversaries==='undefined'?[]:anniversaries,
+  settings:typeof settings==='undefined'?{}:{
+   partnerName:settings.partnerName,myName:settings.myName,
+   partnerStatus:settings.partnerStatus,myStatus:settings.myStatus,
+   replyEnabled:settings.replyEnabled,showPartnerNameInChat:settings.showPartnerNameInChat,
+   partnerAvatarShape:settings.partnerAvatarShape,myAvatarShape:settings.myAvatarShape,
+   partnerAvatarFrame:frameMeta(settings.partnerAvatarFrame),myAvatarFrame:frameMeta(settings.myAvatarFrame)
+  }};
  const json=JSON.stringify(source,(k,v)=>typeof v==='string'&&v.length>12000?undefined:v);
  if(json.length>750000)throw new Error('字卡设置过大，无法安全上传整份；聊天消息仍单独保存');
  return json
 }
+function profileMarker(text,media){
+ let hash=2166136261,length=0;
+ const add=value=>{const part=String(value||'');length+=part.length+1;for(let i=0;i<part.length;i++)hash=Math.imul(hash^part.charCodeAt(i),16777619);hash=Math.imul(hash^0,16777619)};
+ add(text);
+ if(media){
+  for(const name of ['partnerAvatar','myAvatar','partnerAvatarFrame','myAvatarFrame'])add(media[name]);
+  for(const name of ['stickerLibrary','myStickerLibrary']){add(name);for(const value of media[name]||[])add(value)}
+ }
+ return length+':'+(hash>>>0)
+}
+const profileReadyKey=()=>user?'milkSafeProfileReady:'+user.id:'';
 async function syncProfile(){
  if(!await connect())return;
  const text=profilePayload();if(!text)return;
- let hash=2166136261;
- for(let i=0;i<text.length;i++)hash=Math.imul(hash^text.charCodeAt(i),16777619);
- const marker=text.length+':'+(hash>>>0);
+ // 新设备必须先完成云端资料恢复，不能先把默认昵称和空字卡传上去。
+ if(localStorage.getItem(profileReadyKey())!=='1')return;
+ const mediaSources=profileMediaSources(),marker=profileMarker(text,mediaSources);
  if(localStorage.getItem('milkSafeProfileAck:'+user.id)===marker)return;
- check(await client.from(PROFILES).insert({user_id:user.id,device_id:device,profile:JSON.parse(text)}));
+ const profile=JSON.parse(text);
+ profile.media=await uploadProfileMedia(mediaSources);
+ profile._sync={version:3,updatedAt:new Date().toISOString()};
+ check(await client.from(PROFILES).insert({user_id:user.id,device_id:device,profile}));
  localStorage.setItem('milkSafeProfileAck:'+user.id,marker)
 }
-async function restoreProfileIfEmpty(){
- if(!hasMessages()||messages.length||(typeof customReplies!=='undefined'&&customReplies.length))return;
- const rows=check(await client.from(PROFILES).select('profile').order('created_at',{ascending:false}).limit(1));
- const p=rows?.[0]?.profile;if(!p)return;
+function legacyProfile(rows){
+ const profiles=(rows||[]).map(row=>row?.profile).filter(p=>p&&typeof p==='object');
+ if(!profiles.length)return null;
+ const result={...profiles[0],settings:{...(profiles[0].settings||{})}};
+ const newestNonEmpty=name=>profiles.find(p=>Array.isArray(p[name])&&p[name].length);
+ const cardSource=newestNonEmpty('customReplies');
+ if(cardSource){
+  result.customReplies=cardSource.customReplies;
+  for(const name of ['customReplyGroups','disabledReplyItems','disabledReplyItemsUpdatedAt']){
+   if(Object.prototype.hasOwnProperty.call(cardSource,name))result[name]=cardSource[name]
+  }
+ }
+ for(const name of ['customEmojis','customPokes','myPokes','customStatuses','customPokeGroups','customStatusGroups','customMottos','customIntros','anniversaries']){
+  const source=newestNonEmpty(name);if(source)result[name]=source[name]
+ }
+ const defaults={partnerName:'梦角',myName:'我'};
+ for(const name of ['partnerName','myName']){
+  const source=profiles.find(p=>typeof p.settings?.[name]==='string'&&p.settings[name].trim()&&p.settings[name]!==defaults[name]);
+  if(source)result.settings[name]=source.settings[name]
+ }
+ return result
+}
+function applyProfile(p){
+ if(!p||typeof p!=='object')return false;
  if(Array.isArray(p.customReplies))customReplies=p.customReplies;
  if(Array.isArray(p.customReplyGroups))window.customReplyGroups=p.customReplyGroups;
- if(Array.isArray(p.disabledReplyItems)&&!localStorage.getItem('disabledReplyItems')){
+ if(Array.isArray(p.disabledReplyItems)){
   localStorage.setItem('disabledReplyItems',JSON.stringify(p.disabledReplyItems));
-  if(p.disabledReplyItemsUpdatedAt)localStorage.setItem('disabledReplyItemsUpdatedAt',String(p.disabledReplyItemsUpdatedAt));
+  localStorage.setItem('disabledReplyItemsUpdatedAt',String(Number(p.disabledReplyItemsUpdatedAt)||0));
  }
  if(Array.isArray(p.customEmojis))customEmojis=p.customEmojis;
  if(Array.isArray(p.customPokes))customPokes=p.customPokes;
  if(Array.isArray(p.myPokes))myPokes=p.myPokes;
  if(Array.isArray(p.customStatuses))customStatuses=p.customStatuses;
- if(p.settings&&typeof p.settings==='object')Object.assign(settings,p.settings);
- try{await saveData();if(typeof updateUI==='function')updateUI()}catch(e){report(e)}
+ if(Array.isArray(p.customPokeGroups))window.customPokeGroups=p.customPokeGroups;
+ if(Array.isArray(p.customStatusGroups))window.customStatusGroups=p.customStatusGroups;
+ if(Array.isArray(p.customMottos)&&typeof customMottos!=='undefined')customMottos=p.customMottos;
+ if(Array.isArray(p.customIntros)&&typeof customIntros!=='undefined')customIntros=p.customIntros;
+ if(Array.isArray(p.anniversaries)&&typeof anniversaries!=='undefined')anniversaries=p.anniversaries;
+ if(p.settings&&typeof p.settings==='object'&&typeof settings!=='undefined'){
+  const allowed=['partnerName','myName','partnerStatus','myStatus','replyEnabled','showPartnerNameInChat',
+   'partnerAvatarShape','myAvatarShape','partnerAvatarFrame','myAvatarFrame'];
+  for(const name of allowed)if(Object.prototype.hasOwnProperty.call(p.settings,name))settings[name]=p.settings[name]
+  if(typeof p.settings.showPartnerNameInChat==='boolean'&&typeof showPartnerNameInChat!=='undefined'){
+   showPartnerNameInChat=p.settings.showPartnerNameInChat;
+   document.body?.classList?.toggle('show-partner-name',showPartnerNameInChat)
+  }
+ }
+ window._customReplies=typeof customReplies==='undefined'?[]:customReplies;
+ return true
+}
+function applyRestoredMedia(media){
+ if(!media)return;
+ if(typeof stickerLibrary!=='undefined')stickerLibrary=media.stickerLibrary;
+ if(typeof myStickerLibrary!=='undefined')myStickerLibrary=media.myStickerLibrary;
+ if(typeof settings!=='undefined'){
+  if(settings.partnerAvatarFrame)settings.partnerAvatarFrame={...settings.partnerAvatarFrame,src:media.partnerAvatarFrame||''};
+  if(settings.myAvatarFrame)settings.myAvatarFrame={...settings.myAvatarFrame,src:media.myAvatarFrame||''};
+ }
+ try{
+  if(typeof updateAvatar==='function'&&typeof DOMElements!=='undefined'){
+   updateAvatar(DOMElements.partner.avatar,media.partnerAvatar||null);
+   updateAvatar(DOMElements.me.avatar,media.myAvatar||null)
+  }
+  if(typeof applyAllAvatarFrames==='function')applyAllAvatarFrames()
+ }catch(e){report(e)}
+}
+function localProfileMeaningful(){
+ const customName=typeof settings!=='undefined'&&(
+  (typeof settings.partnerName==='string'&&settings.partnerName.trim()&&settings.partnerName!=='梦角')||
+  (typeof settings.myName==='string'&&settings.myName.trim()&&settings.myName!=='我')
+ );
+ return !!(customName||
+  (typeof customReplies!=='undefined'&&Array.isArray(customReplies)&&customReplies.length)||
+  (typeof customEmojis!=='undefined'&&Array.isArray(customEmojis)&&customEmojis.length)||
+  (typeof myPokes!=='undefined'&&Array.isArray(myPokes)&&myPokes.length)||
+  (typeof stickerLibrary!=='undefined'&&Array.isArray(stickerLibrary)&&stickerLibrary.length)||
+  (typeof myStickerLibrary!=='undefined'&&Array.isArray(myStickerLibrary)&&myStickerLibrary.length)||
+  currentAvatar('partner')||currentAvatar('my'))
+}
+async function restoreProfileIfNeeded(){
+ if(!hasMessages()||localStorage.getItem(profileReadyKey())==='1')return false;
+ // 已经同步过且本机仍有明确自定义内容的老设备，以本机为准，避免升级时覆盖离线修改。
+ // 旧版本误上传过“默认昵称 + 空字卡”的设备仍继续从更早快照恢复。
+ if(localStorage.getItem('milkSafeProfileAck:'+user.id)&&localProfileMeaningful()){
+  localStorage.setItem(profileReadyKey(),'1');return false
+ }
+ const rows=check(await client.from(PROFILES).select('profile,device_id,created_at').order('created_at',{ascending:false}).limit(50));
+ const versioned=(rows||[]).find(row=>Number(row?.profile?._sync?.version)>=2);
+ const p=versioned?.profile||legacyProfile(rows);
+ let restored=false;
+ if(p){
+  restored=applyProfile(p);
+  const restoredMedia=await restoreProfileMedia(p.media);applyRestoredMedia(restoredMedia);
+  try{await saveData();if(typeof updateUI==='function')updateUI()}catch(e){report(e);throw e}
+  // 完整的 v3 快照可以直接作为本机确认值；旧快照会在随后自动升级为 v3。
+  if(Number(versioned?.profile?._sync?.version)>=3){
+   const text=profilePayload();if(text)localStorage.setItem('milkSafeProfileAck:'+user.id,profileMarker(text,profileMediaSources()))
+  }
+ }
+ localStorage.setItem(profileReadyKey(),'1');
+ return restored
 }
 async function start(){
  if(starting)return starting;
  starting=(async()=>{
   if(!await connect())return;
-  try{await restoreProfileIfEmpty();await mergeRemote();await flush();await syncProfile();markOk()}
+  try{await restoreProfileIfNeeded();await mergeRemote();await flush();await syncProfile();markOk()}
   catch(e){report(e)}
  })().finally(()=>{starting=null});
  return starting
@@ -293,5 +490,5 @@ document.addEventListener('DOMContentLoaded',()=>{
  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&auto())start().catch(report)});
  setInterval(()=>{if(!document.hidden&&auto()){flush().catch(report);syncProfile().catch(report)}},20000)
 });
-window.MilkSafeSync={start,recordMessage,flush,mergeRemote,mergeOlder,hasOlder:()=>olderAvailable,statusText,syncProfile};
+window.MilkSafeSync={start,recordMessage,flush,mergeRemote,mergeOlder,hasOlder:()=>olderAvailable,statusText,syncProfile,restoreProfile:restoreProfileIfNeeded};
 })();
