@@ -25,7 +25,7 @@ assert.match(questionnaire, /createNotice = \{ message: '问卷已保存在本�
   '离线保存提醒也应留在问卷创建页');
 assert.match(questionnaire, /问卷未能保存或发送，请检查浏览器存储与网络后重试/,
   '本机和云端都失败时应给出明确页内提醒');
-assert.match(serviceWorker, /loveubae-v46/,
+assert.match(serviceWorker, /loveubae-v47/,
   '本次前端更新应刷新 PWA 缓存');
 
 console.log('envelope frequency/reply and questionnaire inline-notice tests passed');
