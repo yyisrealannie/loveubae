@@ -39,6 +39,14 @@
     if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
+  function formatMomentTime(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+    return new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(date);
+  }
   function mediaName(item, fallbackIndex = 0) {
     const saved = String(item?.display_name || '').trim();
     if (saved) return saved;
@@ -462,7 +470,7 @@
       const name = own ? (document.getElementById('my-name')?.textContent || '我').trim() : config?.partner_name || '他';
       const person = node('div', 'moments-person'); person.append(node('span', 'moments-dot', own ? '我' : '♥'), node('span', '', name));
       const postMedia = node('div', 'moments-post-media-wrap');
-      card.append(person, node('time', 'moments-meta', new Date(post.created_at).toLocaleString()), node('div', 'moments-body', post.body), postMedia);
+      card.append(person, node('time', 'moments-meta', formatMomentTime(post.created_at)), node('div', 'moments-body', post.body), postMedia);
       appendImage(postMedia, post.media_id, 'moments-post-media');
       const actions = row(button(post.liked ? '♥ 已喜欢' : '♡ 喜欢', async () => {
         try { await checked(db.from('milk_moments_posts').update({ liked: !post.liked }).eq('id', post.id)); post.liked = !post.liked; renderShell(); } catch (e) { alertError(e); }
@@ -480,6 +488,7 @@
       for (const comment of thread) {
         const entry = node('div', 'moments-comment');
         entry.append(node('strong', '', comment.author === 'self' ? '我：' : `${config?.partner_name || '他'}：`), node('span', '', comment.body));
+        entry.append(node('time', 'moments-meta moments-comment-time', formatMomentTime(comment.created_at)));
         const commentMedia = node('div', 'moments-comment-media-wrap');
         entry.append(commentMedia);
         appendImage(commentMedia, comment.media_id, 'moments-comment-media');

@@ -11129,6 +11129,7 @@
 .moments-actions { margin: 8px 0 4px; }
 .moments-comments { border-top: 1px solid var(--border-color); margin-top: 10px; padding-top: 3px; }
 .moments-comment { padding: 9px 0; font-size: 14px; }
+.moments-comment-time { display: block; margin-top: 4px; font-size: 10px; opacity: 0.72; }
 .moments-comment + .moments-comment { border-top: 1px solid var(--border-color); }
 .moments-comment-media-wrap:empty { display: none; }
 .moments-comment-media-wrap .moments-media { max-width: 110px; max-height: 110px; margin: 6px 0 0; }

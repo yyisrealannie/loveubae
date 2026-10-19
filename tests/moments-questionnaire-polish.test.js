@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const moments = fs.readFileSync('js/moments.js', 'utf8');
 const questionnaire = fs.readFileSync('js/questionnaire.js', 'utf8');
 const migration = fs.readFileSync('supabase/migrations/20261002122015_randomize_moments_daytime.sql', 'utf8');
+const preciseMigration = fs.readFileSync('supabase/migrations/20261019230000_precise_random_reply_timestamps.sql', 'utf8');
 
 assert.match(moments, /galleryMedia = media\.filter\(item => item\.kind === 'photo'\)/,
   '发帖相册必须只展示照片');
@@ -17,5 +18,15 @@ assert.match(migration, /if cfg\.next_post_at > tick_now then continue; end if;/
   '动态应按已经生成的随机时间判断是否到期');
 assert.doesNotMatch(migration, /extract\(hour from local_time\)/,
   '动态发布时间不应再受固定小时窗口限制');
+assert.match(moments, /second: '2-digit'/,
+  '动态和评论时间应显示到秒');
+assert.match(questionnaire, /second: '2-digit'/,
+  '问卷存档时间应显示到秒');
+assert.match(preciseMigration, /picture,p\.partner_comment_due_at\)/,
+  '首条自动评论应保存随机计划时间而不是 cron 整分钟时间');
+assert.match(preciseMigration, /picture,c\.id,c\.due_at\)/,
+  '后续自动回复应保存随机计划时间而不是 cron 整分钟时间');
+assert.match(preciseMigration, /picture,cfg\.next_post_at\)/,
+  '自动动态应保存随机计划时间而不是 cron 整分钟时间');
 
 console.log('moments gallery, schedule, and questionnaire archive tests passed');
