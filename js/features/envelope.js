@@ -7,6 +7,14 @@ let replyingToEnvelopeId = null;
 const PROACTIVE_ENVELOPE_WEEKLY_LIMIT = 4;
 const PROACTIVE_ENVELOPE_CHANCE = 0.12;
 
+function formatEnvelopeTime(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+    return new Intl.DateTimeFormat('zh-CN', {
+        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(date);
+}
+
 async function loadEnvelopeData() {
     const saved = await localforage.getItem(getStorageKey('envelopeData'));
     if (saved) envelopeData = saved;
@@ -44,7 +52,9 @@ async function checkEnvelopeStatus() {
                 refId: letter.id,
                 originalContent: letter.content,
                 content: replyContent,
-                receivedTime: Date.now(),
+                // 即使网页稍后才恢复检查，也保留原先随机出的回信时间，
+                // 不把轮询/重新打开网页的整分钟时间伪装成回信时间。
+                receivedTime: letter.replyTime,
                 isNew: true
             };
             envelopeData.inbox.push(inboxLetter);
@@ -246,9 +256,9 @@ function renderOutboxList() {
         return;
     }
     list.innerHTML = envelopeData.outbox.slice().reverse().map(letter => {
-        const date = new Date(letter.sentTime).toLocaleDateString('zh-CN', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'});
+        const date = formatEnvelopeTime(letter.sentTime);
         const isPending = letter.status === 'pending';
-        const replyTime = isPending ? new Date(letter.replyTime).toLocaleDateString('zh-CN', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
+        const replyTime = isPending ? formatEnvelopeTime(letter.replyTime) : '';
         const statusIcon = isPending
             ? `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`
             : `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`;
@@ -288,7 +298,7 @@ function renderInboxList() {
         return;
     }
     list.innerHTML = envelopeData.inbox.slice().reverse().map(letter => {
-        const date = new Date(letter.receivedTime).toLocaleDateString('zh-CN', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'});
+        const date = formatEnvelopeTime(letter.receivedTime);
         const preview = letter.content.length > 50 ? letter.content.substring(0, 50) + '…' : letter.content;
         const isNew = letter.isNew;
         const origPreview = letter.originalContent ? (letter.originalContent.length > 32 ? letter.originalContent.substring(0, 32) + '…' : letter.originalContent) : '';
@@ -341,7 +351,8 @@ window.viewEnvLetter = function(section, id) {
     const d = String(dateObj.getDate()).padStart(2,'0');
     const dateStr = `${y}/${mo}/${d}`;
     const weekdays = ['日','一','二','三','四','五','六'];
-    const fullDateStr = dateStr + ' 星期' + weekdays[dateObj.getDay()];
+    const clockStr = dateObj.toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false});
+    const fullDateStr = dateStr + ' 星期' + weekdays[dateObj.getDay()] + ' · ' + clockStr;
 
     const stampEl = document.getElementById('env-view-stamp-date');
     if (stampEl) stampEl.textContent = `${mo}/${d}`;
@@ -543,5 +554,5 @@ function handleSendEnvelope() {
     replyingToEnvelopeId = null;
     cancelEnvelopeCompose();
     switchEnvTab('outbox');
-    showNotification(`信件已寄出，预计 ${Math.floor(randomHours)} 小时后收到回信 ✉️`, 'success');
+    showNotification('信件已寄出，会在 10–24 小时内随机收到回信 ✉️', 'success');
 }

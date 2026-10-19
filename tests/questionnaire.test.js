@@ -15,6 +15,8 @@ assert.equal(test.responseDelayMinutes(4, 0), 180);
 assert.equal(test.responseDelayMinutes(6, 0.999999), 480);
 assert.equal(test.responseDelayMinutes(7, 0), 360);
 assert.equal(test.responseDelayMinutes(10, 0.999999), 720);
+assert.equal(test.responseDelayMs(1, 0, 0.5), 60 * 60000 + 30 * 1000);
+assert.equal(test.responseDelayMs(10, 0.999999, 0.999999), 12 * 60 * 60 * 1000 - 1000);
 
 const valid = test.validateDraft({
     title: ' 睡前小问卷 ',

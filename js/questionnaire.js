@@ -36,6 +36,12 @@
     const range = count <= 3 ? [60, 240] : count <= 6 ? [180, 480] : [360, 720];
     return range[0] + Math.floor(Math.max(0, Math.min(.999999, random)) * (range[1] - range[0] + 1));
   }
+  function responseDelayMs(count, minuteRandom = randomUnit(), secondRandom = randomUnit()) {
+    const minuteDelay = responseDelayMinutes(count, minuteRandom) * 60000;
+    const secondJitter = Math.floor(Math.max(0, Math.min(.999999, secondRandom)) * 60) * 1000;
+    // 最长问卷也必须严格落在“12 小时内”，同时让秒数自然分散，不总是 :00。
+    return Math.min(12 * 60 * 60 * 1000 - 1000, minuteDelay + secondJitter);
+  }
   function hashString(value) {
     let hash = 2166136261;
     for (let i = 0; i < value.length; i += 1) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
@@ -210,7 +216,7 @@
     const date = new Date(value);
     if (!Number.isFinite(date.getTime())) return '';
     return new Intl.DateTimeFormat('zh-CN', {
-      month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+      month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
     }).format(date).replace('日 ', '日 · ');
   }
   function ensureScreen() {
@@ -332,8 +338,7 @@
     clearCreateNotice();
     const valid = validateDraft(draft);
     const sentAt = new Date();
-    const delay = responseDelayMinutes(valid.questions.length);
-    const dueAt = new Date(sentAt.getTime() + delay * 60000);
+    const dueAt = new Date(sentAt.getTime() + responseDelayMs(valid.questions.length));
     const record = {
       id: crypto.randomUUID(), user_id: user?.id || null, session_id: sessionId(),
       title: valid.title, questions: valid.questions, answers: null, status: 'pending',
@@ -398,6 +403,6 @@
   });
   window.MilkQuestionnaires = {
     open, refresh,
-    _test: { responseDelayMinutes, deterministicIndex, validateDraft }
+    _test: { responseDelayMinutes, responseDelayMs, deterministicIndex, validateDraft }
   };
 })();
