@@ -347,24 +347,49 @@ function deduplicateSimilarContentArray(arr, baseSystemArray = [], threshold = 0
             }, 500);
         };
 
+const DEFAULT_FONT_STACK = "'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', serif";
+
+// Upgrade old saved default stacks without changing an explicitly chosen system font.
+function resolveFontStack(stack) {
+    if (!stack || stack === "'Noto Serif SC', serif") return DEFAULT_FONT_STACK;
+    return stack.replace(/'Noto Serif SC', serif/g, DEFAULT_FONT_STACK);
+}
+
+let customFontRequest = 0;
 async function applyCustomFont(url) {
+    const request = ++customFontRequest;
     if (!url || !url.trim()) {
-        document.documentElement.style.removeProperty('--font-family');
-        document.documentElement.style.removeProperty('--message-font-family');
-        return;
+        document.documentElement.style.setProperty('--font-family', DEFAULT_FONT_STACK);
+        document.documentElement.style.setProperty('--message-font-family', DEFAULT_FONT_STACK);
+        if (typeof settings !== 'undefined') {
+            settings.messageFontFamily = DEFAULT_FONT_STACK;
+            settings.customFontUrl = '';
+        }
+        return true;
     }
     const fontName = 'UserCustomFont';
     try {
-        const font = new FontFace(fontName, `url(${url})`);
+        const font = new FontFace(fontName, `url(${JSON.stringify(url.trim())})`);
         await font.load();
+        if (request !== customFontRequest) return false;
+        // Remove the previous face so replacing a font actually uses the new file.
+        document.fonts.forEach(face => {
+            if (face.family === fontName) document.fonts.delete(face);
+        });
         document.fonts.add(font);
-        const fontStack = `"${fontName}", 'Noto Serif SC', serif`;
+        const fontStack = `"${fontName}", 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', serif`;
         document.documentElement.style.setProperty('--font-family', fontStack);
         document.documentElement.style.setProperty('--message-font-family', fontStack);
-        if (typeof settings !== 'undefined') settings.messageFontFamily = fontStack;
+        if (typeof settings !== 'undefined') {
+            settings.messageFontFamily = fontStack;
+            settings.customFontUrl = url.trim();
+        }
+        return true;
     } catch (e) {
+        if (request !== customFontRequest) return false;
         console.error('字体加载失败:', e);
-        showNotification('字体加载失败，请检查链接是否有效', 'error');
+        showNotification('字体加载失败，已保留原设置，请检查链接或网络', 'error');
+        return false;
     }
 }
 
