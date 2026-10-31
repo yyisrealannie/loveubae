@@ -1,13 +1,14 @@
-const CACHE_NAME = 'loveubae-v48';
+const CACHE_NAME = 'loveubae-v49';
+const FONT_CACHE_NAME = 'loveubae-fonts-v1';
 const LOCAL_ASSETS = [
-  './', './index.html', './manifest.webmanifest', './css/styles.css?v=48', './css/envelope.css?v=46', './css/questionnaire.css?v=46',
+  './', './index.html', './manifest.webmanifest', './css/styles.css?v=49', './css/envelope.css?v=46', './css/questionnaire.css?v=46',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
-  './js/config.js', './js/utils.js', './js/backup-engine.js', './js/state.js',
-  './js/core.js?v=41', './js/features/mood.js', './js/features/envelope.js?v=48',
-  './js/features/reply-library.js?v=39', './js/features/theme-editor.js',
+  './js/config.js', './js/utils.js?v=49', './js/backup-engine.js', './js/state.js',
+  './js/core.js?v=49', './js/features/mood.js', './js/features/envelope.js?v=48',
+  './js/features/reply-library.js?v=39', './js/features/theme-editor.js?v=49',
   './js/features/group-chat.js', './js/features/call.js', './js/games.js',
   './js/features.js', './js/data.js', './js/cloud-sync.js?v=40', './js/safe-sync.js?v=47', './js/questionnaire.js?v=48', './js/moments.js?v=48', './js/wallet.js?v=39', './js/sleep-push.js?v=43', './js/onboarding.js',
-  './js/listeners.js', './js/app.js'
+  './js/listeners.js?v=49', './js/app.js'
 ];
 
 self.addEventListener('install', event => {
@@ -17,7 +18,7 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))))
+    caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('loveubae-') && key !== CACHE_NAME && key !== FONT_CACHE_NAME).map(key => caches.delete(key))))
   );
   self.clients.claim();
 });
@@ -25,6 +26,21 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+  // Google serves the stylesheet and glyph files on separate origins. Keep both
+  // after a successful load so reopening the app need not redownload the font.
+  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
+    event.respondWith((async () => {
+      const cache = await caches.open(FONT_CACHE_NAME);
+      const cached = await cache.match(event.request);
+      if (cached) return cached;
+      const response = await fetch(event.request);
+      if (response.ok || response.type === 'opaque') {
+        await cache.put(event.request, response.clone());
+      }
+      return response;
+    })());
+    return;
+  }
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).then(response => {

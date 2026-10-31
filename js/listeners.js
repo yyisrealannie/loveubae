@@ -609,10 +609,10 @@ if (_chatSettingsEl) _chatSettingsEl.addEventListener('click', () => {
             if (applyFontBtn) {
                 applyFontBtn.addEventListener('click', () => {
                     const url = fontUrlInput.value.trim();
-                    settings.customFontUrl = url;
                     
                     showNotification('正在尝试加载字体...', 'info', 1000);
-                    applyCustomFont(url).then(() => {
+                    applyCustomFont(url).then((applied) => {
+                        if (!applied) return;
                         throttledSaveData();
                         if(url) showNotification('字体已应用', 'success');
                         else showNotification('已恢复默认字体', 'success');
@@ -626,6 +626,7 @@ if (_chatSettingsEl) _chatSettingsEl.addEventListener('click', () => {
                 followSystemBtn.addEventListener('click', () => {
                     
                     const systemFontStack = 'system-ui, -apple-system, sans-serif';
+                    ++customFontRequest;
                     
                     
                     if (fontUrlInput) fontUrlInput.value = "";

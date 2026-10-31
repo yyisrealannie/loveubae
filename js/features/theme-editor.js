@@ -606,8 +606,8 @@ function populateThemeSelector() {
             if (scheme.customFontUrl) {
                 try { applyCustomFont(scheme.customFontUrl); } catch(e) {}
             } else {
-                document.documentElement.style.setProperty('--message-font-family', scheme.messageFontFamily || "'Noto Serif SC', serif");
-                document.documentElement.style.setProperty('--font-family', scheme.messageFontFamily || "'Noto Serif SC', serif");
+                document.documentElement.style.setProperty('--message-font-family', resolveFontStack(scheme.messageFontFamily));
+                document.documentElement.style.setProperty('--font-family', resolveFontStack(scheme.messageFontFamily));
             }
             
             if (scheme.customBubbleCss) {
